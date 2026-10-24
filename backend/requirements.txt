@@ -6,6 +6,7 @@ email-validator
 pytest
 httpx
 passlib[bcrypt]
+argon2-cffi
 python-jose[cryptography]
 python-multipart
 sqlalchemy
