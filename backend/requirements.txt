@@ -3,7 +3,7 @@ uvicorn
 pydantic
 pytest
 httpx
-passivm[bcrypt]
+passlib[bcrypt]
 python-jose[cryptography]
 python-multipart
 sqlalchemy
