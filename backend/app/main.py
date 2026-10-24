@@ -8,7 +8,12 @@ from app.api.v1.endpoints.chat import router as chat_router
 from sqlalchemy import inspect, text
 from app.core.database import Base, engine
 
-app = FastAPI()
+app = FastAPI(
+	title="Enterprise AI Workspace Backend",
+	docs_url="/docs",
+	redoc_url="/redoc",
+	openapi_url="/openapi.json",
+)
 
 app.include_router(health_router, prefix="/api/v1", tags=["health"])
 app.include_router(auth_router, tags=["auth"])
