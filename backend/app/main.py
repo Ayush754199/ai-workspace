@@ -19,6 +19,11 @@ app.include_router(rooms_router, prefix="/api/v1", tags=["rooms"])
 app.include_router(chat_router, prefix="/api/v1", tags=["chat"])
 
 
+@app.get("/")
+def root():
+	return {"message": "Enterprise AI Workspace Backend is Running!"}
+
+
 @app.on_event("startup")
 def ensure_user_admin_column():
 	"""Keep existing SQLite installations compatible with the admin flag."""
