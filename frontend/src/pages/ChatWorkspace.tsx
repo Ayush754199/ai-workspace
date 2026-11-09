@@ -98,8 +98,9 @@ const ChatWorkspace: React.FC = () => {
   const [notice, setNotice] = useState("");
   const [chatMode, setChatMode] = useState<"chat" | "image">("chat");
   const [featureMenuOpen, setFeatureMenuOpen] = useState(false);
-  const [imagePrompt, setImagePrompt] = useState("");
   const [imageSource, setImageSource] = useState<File | null>(null);
+  const [imageSourceUrl, setImageSourceUrl] = useState("");
+  const [imageIntent, setImageIntent] = useState(false);
   const [imageBusy, setImageBusy] = useState(false);
   const [artifactCopied, setArtifactCopied] = useState(false);
   const artifactFrames = useRef(new Map<number, HTMLIFrameElement>());
@@ -116,7 +117,7 @@ const ChatWorkspace: React.FC = () => {
     return null;
   }, [messages]);
 
-  const activeModel = models.find((model) => model.id === modelId);
+  const activeModel = (models || []).find((model) => model.id === modelId);
   const canSend = Boolean(token) && !sending && !artifactView?.pending && (prompt.trim().length > 0 || attachments.length > 0);
 
   const loadConversations = useCallback(async () => {
@@ -197,7 +198,8 @@ const ChatWorkspace: React.FC = () => {
     for (const file of Array.from(files)) {
       try {
         const uploaded = await chatV2.upload(token, file, activeId ?? undefined);
-        setAttachments((current) => [...current, uploaded]);
+        const preview = file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined;
+        setAttachments((current) => [...current, preview ? { ...uploaded, preview } : uploaded]);
       } catch (err: any) {
         setError(err?.message || "Upload failed");
       }
@@ -250,6 +252,7 @@ const ChatWorkspace: React.FC = () => {
     };
     setMessages((current) => [...current, optimistic, placeholder]);
     setPrompt("");
+    setImageIntent(false);
     setAttachments([]);
     const controller = new AbortController();
     abortRef.current = controller;
@@ -373,7 +376,7 @@ const ChatWorkspace: React.FC = () => {
 
   const generateInChat = async () => {
     if (!token) return;
-    const text = imagePrompt.trim();
+    const text = prompt.trim();
     if (!text) return;
     let conversationId = activeId;
     if (conversationId == null) {
@@ -389,6 +392,9 @@ const ChatWorkspace: React.FC = () => {
     }
     setImageBusy(true);
     setError("");
+    const sentPrompt = text;
+    const sentImage = imageSource;
+    const sentImageUrl = imageSourceUrl;
     const userMessage: ChatMessage = {
       id: -Date.now(),
       role: "user",
@@ -398,7 +404,8 @@ const ChatWorkspace: React.FC = () => {
       status: "complete",
       attachments: [],
       citations: [],
-      meta: {}, created_at: new Date().toISOString(),
+      meta: { ...(sentImageUrl ? { attachedImageUrl: sentImageUrl } : {}) },
+      created_at: new Date().toISOString(),
     };
     const placeholder: ChatMessage = {
       id: -Date.now() - 1,
@@ -414,10 +421,10 @@ const ChatWorkspace: React.FC = () => {
       pending: true,
     };
     setMessages((current) => [...current, userMessage, placeholder]);
-    const sentPrompt = text;
-    const sentImage = imageSource;
-    setImagePrompt("");
+    setPrompt("");
+    setImageIntent(false);
     setImageSource(null);
+    setImageSourceUrl("");
     try {
       const blob = await imageApi.generate(token, sentPrompt, sentImage);
       const url = URL.createObjectURL(blob);
@@ -452,7 +459,7 @@ const ChatWorkspace: React.FC = () => {
     try {
       const blob = await (await fetch(url)).blob();
       setImageSource(new File([blob], "previous-image.png", { type: blob.type || "image/png" }));
-      setChatMode("image");
+      setImageSourceUrl(url);
       setNotice("Image attached — describe the change you want.");
     } catch {
       setError("Could not reuse this image");
@@ -537,7 +544,7 @@ const ChatWorkspace: React.FC = () => {
     [conversations, search],
   );
 
-  const activeTitle = conversations.find((conversation) => conversation.id === activeId)?.title ?? "New chat";
+  const activeTitle = conversations.find((conversation) => conversation.id === activeId)?.title ?? "Chat";
 
   return (
     <div className="cw-shell">
@@ -602,12 +609,12 @@ const ChatWorkspace: React.FC = () => {
             <label className="cw-model-picker" title={activeModel?.reason || "Choose the model for the next message"}>
               <span>Model</span>
               <select value={modelId} onChange={(e) => setModelId(e.target.value)}>
-                {models.map((model) => (
+                {(models || []).map((model) => (
                   <option key={model.id} value={model.id} disabled={!model.selectable}>
                     {model.label}{model.selectable ? "" : " — unavailable"}
                   </option>
                 ))}
-                {models.length === 0 && <option value="auto">Loading…</option>}
+                {(models || []).length === 0 && <option value="auto">Loading…</option>}
               </select>
             </label>
             <button className="cw-ghost" onClick={exportChat} disabled={activeId == null} title="Export as Markdown">⤓ Export</button>
@@ -675,9 +682,14 @@ const ChatWorkspace: React.FC = () => {
                 {message.attachments?.length > 0 && (
                   <div className="cw-attach-list">
                     {message.attachments.map((attachment) => (
-                      <span key={attachment.id}>📎 {attachment.filename}</span>
+                      <span key={attachment.id}>
+                        {attachment.content_type.startsWith("image/") && attachment.preview ? <img src={attachment.preview} alt={attachment.filename} /> : "📎"} {attachment.filename}
+                      </span>
                     ))}
                   </div>
+                )}
+                {message.role === "user" && typeof message.meta?.attachedImageUrl === "string" && (
+                  <div className="cw-user-image"><img src={String(message.meta.attachedImageUrl)} alt="Image supplied for editing" /></div>
                 )}
                 {message.meta?.kind === "image" && message.meta?.imageUrl ? (
                   <div className="cw-image-result">
@@ -771,93 +783,66 @@ const ChatWorkspace: React.FC = () => {
         )}
 
         <div className="cw-composer-wrap">
-          {attachments.length > 0 && (
-            <div className="cw-pending-files">
-              {attachments.map((attachment) => (
-                <span key={attachment.id}>
-                  📎 {attachment.filename}
-                  <button onClick={() => setAttachments((current) => current.filter((item) => item.id !== attachment.id))}>✕</button>
-                </span>
-              ))}
-            </div>
-          )}
-          <div className="cw-mode-row" role="tablist" aria-label="Composer mode">
-            <button type="button" role="tab" aria-selected={chatMode === "chat"} className={chatMode === "chat" ? "active" : ""} onClick={() => setChatMode("chat")}>💬 Chat</button>
-            <button type="button" role="tab" aria-selected={chatMode === "image"} className={chatMode === "image" ? "active" : ""} onClick={() => setChatMode("image")}>✦ Image</button>
-            <span className="cw-mode-hint">
-              {chatMode === "image" ? (imageSource ? "Describe the edit — your image is the source" : "Describe the image to generate") : "Ask anything — attach files or dictate"}
-            </span>
-          </div>
           <form
             className="cw-composer"
             onSubmit={(event) => {
               event.preventDefault();
-              if (chatMode === "image" && token && imagePrompt.trim() && !imageBusy) {
-                void generateInChat();
-                return;
-              }
-              if (chatMode === "chat") void send();
+              if (canSend) void send();
             }}
           >
-            {chatMode === "image" ? (
-              <>
-                <textarea
-                  value={imagePrompt}
-                  onChange={(e) => setImagePrompt(e.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" && !event.shiftKey) {
-                      event.preventDefault();
-                      if (token && imagePrompt.trim() && !imageBusy) void generateInChat();
-                    }
-                  }}
-                  placeholder={imageSource ? "e.g. make the background a sunset beach" : "e.g. a cinematic photo of a mountain lake at sunrise"}
-                  rows={2}
-                />
-                <div className="cw-composer-actions">
-                  <button
-                    type="button"
-                    className={`cw-icon ${imageSource ? "has-source" : ""}`}
-                    title={imageSource ? `Source: ${imageSource.name}` : "Attach an image to edit"}
-                    onClick={() => imageFileRef.current?.click()}
-                  >🖼</button>
-                  {imageSource && (
-                    <button type="button" className="cw-chip" onClick={() => setImageSource(null)}>
-                      {imageSource.name.slice(0, 24)} ✕
-                    </button>
-                  )}
-                  <span className="cw-hint">{imageSource ? "Image-to-image" : "Text-to-image"}</span>
-                  <button type="submit" className="cw-send" disabled={!token || !imagePrompt.trim() || imageBusy}>
-                    {imageBusy ? "Painting…" : imageSource ? "Apply edit ↑" : "Generate ↑"}
-                  </button>
-                </div>
-              </>
-            ) : (
-              <>
-                <textarea
-                  ref={textareaRef}
-                  value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" && !event.shiftKey) {
-                      event.preventDefault();
-                      if (canSend) void send();
-                    }
-                  }}
-                  placeholder="Message the assistant… (Enter to send, Shift+Enter for a new line)"
-                  rows={2}
-                />
-                <div className="cw-composer-actions">
-                  <button type="button" className="cw-icon" title="Attach files" onClick={() => fileRef.current?.click()}>📎</button>
-                  <VoiceControls onTranscript={(text) => setPrompt((current) => (current ? `${current} ${text}` : text))} />
-                  <span className="cw-hint">{researchStatus || "Ready"}</span>
-                  {sending ? (
-                    <button type="button" className="cw-stop" onClick={stop}>■ Stop</button>
-                  ) : (
-                    <button type="submit" className="cw-send" disabled={!canSend}>{sending ? "…" : "Send ↑"}</button>
-                  )}
-                </div>
-              </>
+            <input className="cw-visually-hidden" type="checkbox" checked={webSearch} aria-label="Search the web for this answer" onChange={(event) => setWebSearch(event.target.checked)} />
+            {attachments.length > 0 && (
+              <div className="cw-composer-attachments" aria-label="Attached files">
+                {attachments.map((attachment) => (
+                  <span key={attachment.id} className="cw-file-chip">
+                    {attachment.content_type.startsWith("image/") && attachment.preview ? <img src={attachment.preview} alt="" /> : <span>📎</span>}
+                    <b>{attachment.filename}</b>
+                    <button type="button" onClick={() => setAttachments((current) => current.filter((item) => item.id !== attachment.id))} aria-label={`Remove ${attachment.filename}`}>✕</button>
+                  </span>
+                ))}
+              </div>
             )}
+            {imageSource && (
+              <div className="cw-image-chip" aria-label="Image to edit">
+                {imageSourceUrl && <img src={imageSourceUrl} alt="Selected image" />}
+                <span><strong>{imageSource.name}</strong><small>Ready to edit</small></span>
+                <button type="button" onClick={() => { setImageSource(null); setImageSourceUrl(""); }} aria-label="Remove image">✕</button>
+              </div>
+            )}
+            <textarea
+              ref={textareaRef}
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  if (canSend) void send();
+                }
+              }}
+              placeholder={imageSource || imageIntent ? "Describe the image… e.g. a cinematic photo of a mountain lake at sunrise" : "Message the assistant… attach a file or generate an image from here"}
+              rows={2}
+            />
+            <div className="cw-composer-actions">
+              <button type="button" className="cw-icon" title="Attach files" onClick={() => fileRef.current?.click()}>📎</button>
+              <button type="button" className={`cw-icon ${imageSource ? "has-source" : ""}`} title={imageSource ? "Choose another image to edit" : "Attach an image for editing"} onClick={() => imageFileRef.current?.click()}>🖼</button>
+              <VoiceControls onTranscript={(text) => setPrompt((current) => (current ? `${current} ${text}` : text))} />
+              <span className="cw-hint">{researchStatus || (imageSource ? "Image editing ready" : "Chat and web search ready")}</span>
+              <button type="button" role="tab" aria-selected={imageIntent || Boolean(imageSource)} className="cw-image-action" disabled={!token || imageBusy} onClick={() => {
+                if (!prompt.trim()) {
+                  setImageIntent(true);
+                  textareaRef.current?.focus();
+                  return;
+                }
+                void generateInChat();
+              }}>
+                {imageBusy ? "Generating…" : imageSource ? "Edit image ↑" : "Generate image"}
+              </button>
+              {sending ? (
+                <button type="button" className="cw-stop" onClick={stop}>■ Stop</button>
+              ) : (
+                <button type="submit" className="cw-send" disabled={!canSend}>{sending ? "…" : "Send ↑"}</button>
+              )}
+            </div>
           </form>
           {notice && <p className="cw-notice">{notice}<button onClick={() => setNotice("")}>✕</button></p>}
           <p className="cw-disclaimer">

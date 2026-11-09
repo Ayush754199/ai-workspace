@@ -141,6 +141,39 @@ def generate_gemini_image(prompt: str, credentials: tuple[ProviderCredential, ..
     )
 
 
+def edit_gemini_image(prompt: str, image_data: bytes, mime_type: str, credentials: tuple[ProviderCredential, ...]) -> bytes:
+    """Edit an uploaded image with Gemini image output when no HF edit Space is configured."""
+    from google import genai
+    from google.genai import types
+
+    def edit(api_key: str) -> bytes:
+        client = genai.Client(api_key=api_key)
+        try:
+            response = client.models.generate_content(
+                model=settings.GEMINI_IMAGE_MODEL,
+                contents=[prompt, types.Part.from_bytes(data=image_data, mime_type=mime_type)],
+                config=types.GenerateContentConfig(response_modalities=["IMAGE"]),
+            )
+            for part in getattr(response, "parts", []) or []:
+                inline_data = getattr(part, "inline_data", None)
+                data = getattr(inline_data, "data", None) if inline_data else None
+                if data:
+                    return bytes(data)
+            raise RuntimeError("Gemini returned no edited image data")
+        finally:
+            close = getattr(client, "close", None)
+            if callable(close):
+                close()
+
+    return call_with_key_rotation(
+        "Gemini",
+        edit,
+        endpoint="Gemini/image-editing",
+        payload={"model": settings.GEMINI_IMAGE_MODEL, "prompt": prompt},
+        credentials=credentials,
+    )
+
+
 def generate_fal_image(prompt: str) -> bytes:
     from backend.fal_media import generate_image
     return generate_image(prompt)
@@ -328,6 +361,14 @@ async def image_studio(
         raise HTTPException(status_code=503, detail="Image generation is not configured. Set HF_IMAGE_API_URL or Gemini credentials on the server.")
     if image is not None:
         edit_space = settings.HF_IMAGE_EDIT_SPACE.strip()
+        if not edit_space and gemini_ready:
+            try:
+                output = edit_gemini_image(prompt, uploaded_data or b"", image.content_type or "image/png", gemini_credentials)
+                QuotaService().commit(db, reservation.reservation_id, detail={"operation": "image_editing", "provider": "gemini"})
+                return StreamingResponse(io.BytesIO(output), media_type="image/png")
+            except Exception as exc:
+                QuotaService().release(db, reservation.reservation_id, failure=True)
+                raise HTTPException(status_code=502, detail="Gemini image editing failed") from exc
         if not edit_space:
             QuotaService().release(db, reservation.reservation_id, failure=True)
             raise HTTPException(status_code=503, detail="Image editing is unavailable until an eligible editing Space is configured. Set HF_IMAGE_EDIT_SPACE on the server.")
