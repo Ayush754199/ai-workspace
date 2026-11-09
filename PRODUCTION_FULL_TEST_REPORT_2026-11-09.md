@@ -22,10 +22,10 @@ Not ready for mobile-app rollout yet. Core chat and office documents pass, and t
 
 ## Failed / blocked
 
-- Image generation: HTTP 502, `Configured image generation provider failed`.
+- Image generation: the configured Cloudflare Workers AI token now passes a direct image-generation request; the app's previous `cfat_` token exclusion was incorrect and has been removed. Gemini key 1 is invalid, while Gemini key 2 is quota-exhausted.
 - Prompt-to-video: HTTP 502, `Video generation failed; quota was released`.
 - Image-to-video: HTTP 502, `Image-to-video failed; quota was released`.
-- The supplied Cloudflare credential verifies as an active token, but its screenshot identifies it as an R2 S3-compatible token; it is not sufficient for the Workers AI image endpoint.
+- Cloudflare token verification endpoint returns 401, but the account's Workers AI image endpoint accepts the same configured token and returns image data; the application now follows the working endpoint result.
 - Video editor had horizontal overflow on tablet/iPad/laptop widths. A CSS containment fix was committed in `frontend/src/styles.css`; the mobile login smoke check at 390px reported no document overflow.
 - Browser login API fetch now succeeds from the production frontend origin with HTTP 200.
 
@@ -38,5 +38,6 @@ Not ready for mobile-app rollout yet. Core chat and office documents pass, and t
 - Native Gemini image-generation fallback was added, using the current Gemini image-output API; the live key test returned HTTP 401, so a valid Gemini key must be set before image generation can pass.
 - A free Render Postgres database was linked to the backend service. It expires on 2026-12-09 unless upgraded or replaced.
 - A FAL queue fallback was added for image, text-to-video, and image-to-video. Validation showed both configured FAL accounts are locked because their balances are exhausted, so this fallback will become usable after credit is added or a funded key is supplied.
-- Validation showed both Hugging Face tokens authenticate, but the configured `Wan-AI/Wan2.1` Space is in `RUNTIME_ERROR`; this is an upstream Space failure, not an application permission failure. Both LTX credentials returned authentication failures.
+- Validation showed both Hugging Face tokens authenticate, but the configured `Wan-AI/Wan2.1` Space is in `RUNTIME_ERROR`; this is an upstream Space failure, not an application permission failure. LTX API keys authenticate and accept jobs, but the job fails with `Insufficient funds`.
+- Cloudflare's available model search did not expose a text-to-video or image-to-video generation model; it can support the image path, not the video path in this configuration.
 

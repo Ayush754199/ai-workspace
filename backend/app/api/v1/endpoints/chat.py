@@ -308,12 +308,11 @@ async def image_studio(
     if not gemini_credentials and settings.GEMINI_API_KEY != "default-test-key":
         gemini_credentials = (ProviderCredential(settings.GEMINI_API_KEY, "GEMINI_API_KEY"),)
     image_endpoint = settings.HF_IMAGE_API_URL.strip()
-    # `cfat_` R2 S3 tokens validate at Cloudflare but cannot call Workers AI.
-    # Do not select that incompatible token as the primary image provider.
+    # Cloudflare's current AI endpoint accepts the account token provisioned for
+    # this deployment, including the `cfat_` form shown by its token UI.
     cloudflare_ready = bool(
         settings.CLOUDFLARE_ACCOUNT_ID.strip()
         and settings.CLOUDFLARE_API_TOKEN.strip()
-        and not settings.CLOUDFLARE_API_TOKEN.strip().startswith("cfat_")
     )
     try:
         from backend.fal_media import configured as fal_configured
