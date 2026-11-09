@@ -106,7 +106,7 @@ _ASSET_EXTENSIONS = {
 # (frontend/src/App.tsx). Keep in sync when a page is added.
 _SPA_PATHS = {
 	"login", "register", "dashboard", "assistant", "documents", "images", "office",
-	"research", "video-studio", "video-studio/editor", "profile", "admin",
+	"research", "chat", "video-studio", "video-studio/editor", "profile", "admin",
 }
 # The exact nested client routes (see frontend/src/App.tsx). An unknown child such
 # as /video-studio/nope must 404 rather than render the app shell.
@@ -213,6 +213,13 @@ def ensure_schema():
 				connection.execute(text("ALTER TABLE rooms ADD COLUMN is_pinned BOOLEAN NOT NULL DEFAULT 0"))
 			if "is_archived" not in room_columns:
 				connection.execute(text("ALTER TABLE rooms ADD COLUMN is_archived BOOLEAN NOT NULL DEFAULT 0"))
+	if "room_invites" in inspector.get_table_names():
+		invite_columns = {column["name"] for column in inspector.get_columns("room_invites")}
+		with engine.begin() as connection:
+			if "invited_user_id" not in invite_columns:
+				connection.execute(text("ALTER TABLE room_invites ADD COLUMN invited_user_id INTEGER"))
+			if "status" not in invite_columns:
+				connection.execute(text("ALTER TABLE room_invites ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'pending'"))
 	if "media_jobs" in inspector.get_table_names():
 		media_job_columns = {column["name"] for column in inspector.get_columns("media_jobs")}
 		with engine.begin() as connection:

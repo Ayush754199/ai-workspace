@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { apiBaseUrl, requestJson } from "../api/client";
 
 interface User {
@@ -36,6 +36,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const navigate = useNavigate();
+  const location = useLocation();
 
   const loadUser = async (accessToken: string) =>
     requestJson<User>(
@@ -86,7 +87,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setToken(data.access_token);
       localStorage.setItem("auth_token", data.access_token);
       setUser(currentUser);
-      navigate("/dashboard");
+      navigate(`/dashboard${location.search}`);
     } catch (error: any) {
       localStorage.removeItem("auth_token");
       throw new Error(error?.message || "Could not load your profile after signing in");

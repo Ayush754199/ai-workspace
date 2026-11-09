@@ -40,7 +40,7 @@ const Research: React.FC = () => {
             <h1>Answers grounded in live web sources</h1>
             <p className="page-subtitle">Searches the web, reads the top pages and answers only from those sources — every claim links back.</p>
           </div>
-          <a className="tool-link" href="/chat">← Back to chat</a>
+          <a className="tool-link" href="/dashboard">← Back to chat</a>
         </header>
 
         <form

@@ -64,7 +64,7 @@ const Office: React.FC = () => {
             <h1>Excel, Word, PowerPoint, CSV &amp; PDF</h1>
             <p className="page-subtitle">Describe what you need and download a real, editable file. Files are generated on the server.</p>
           </div>
-          <a className="tool-link" href="/chat">← Back to chat</a>
+          <a className="tool-link" href="/dashboard">← Back to chat</a>
         </header>
 
         {error && <div className="tool-error" role="alert">{error}</div>}

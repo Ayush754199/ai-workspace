@@ -6,9 +6,10 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, require_room_member
 from app.core.database import get_db
-from app.models.room import Message, Room
+from app.models.room import Message, Room, RoomInvite
 from app.models.user import User
 from app.services.gemini_service import GeminiProvider
+import secrets
 
 router = APIRouter(prefix="/rooms", tags=["rooms"])
 
@@ -86,6 +87,25 @@ def list_rooms(current_user: User = Depends(get_current_user), db: Session = Dep
     return [serialize_room(room, db) for room in visible]
 
 
+@router.get("/users/search")
+def search_users(
+    q: str = Query(default="", max_length=100),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return active users matching the invite field without exposing passwords."""
+    query = q.strip()
+    if not query:
+        return []
+    pattern = f"%{query}%"
+    users = db.query(User).filter(
+        User.id != current_user.id,
+        User.is_active.is_(True),
+        (User.email.ilike(pattern) | User.full_name.ilike(pattern) | User.identifier.ilike(pattern)),
+    ).order_by(User.full_name.asc(), User.email.asc()).limit(10).all()
+    return [{"id": user.id, "name": user.full_name, "email": user.email, "role": user.role} for user in users]
+
+
 def _owned_room(room_id: int, current_user: User, db: Session) -> Room:
     room = db.query(Room).filter(Room.id == room_id, Room.is_active.is_(True)).first()
     if room is None:
@@ -147,7 +167,7 @@ def create_message(
     mention_ids = [
         user.id for user in mentioned_users
         if f"@{(user.full_name or '').lower().replace(' ', '_')}" in lowered_content
-        or f"@{user.email.split('@')[0].lower()}" in lowered_content
+        or f"@{(user.email or '').split('@')[0].lower()}" in lowered_content
     ]
     message = Message(
         room_id=room.id,
@@ -167,6 +187,7 @@ def create_message(
 def invite_member(
     request: InviteRequest,
     room: Room = Depends(require_room_member),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     identifier = request.identifier.strip()
@@ -175,9 +196,148 @@ def invite_member(
         raise HTTPException(status_code=404, detail="User not found")
     if user.id in (room.members or []):
         raise HTTPException(status_code=409, detail="User is already a room member")
-    room.members = [*(room.members or []), user.id]
+    existing = db.query(RoomInvite).filter(
+        RoomInvite.room_id == room.id,
+        RoomInvite.invited_user_id == user.id,
+        RoomInvite.status == "pending",
+    ).first()
+    if existing is not None:
+        raise HTTPException(status_code=409, detail="User already has a pending room invitation")
+    db.add(RoomInvite(
+        room_id=room.id,
+        token=secrets.token_urlsafe(32),
+        created_by=current_user.id,
+        invited_user_id=user.id,
+        status="pending",
+    ))
     db.commit()
-    return {"message": "Member invited", "user_id": user.id}
+    return {"message": "Invitation sent", "user_id": user.id, "status": "pending"}
+
+
+def serialize_invitation(invite: RoomInvite, room: Room, inviter: User | None = None) -> dict:
+    return {
+        "id": invite.id,
+        "room_id": room.id,
+        "room_name": room.name,
+        "invited_user_id": invite.invited_user_id,
+        "created_by": invite.created_by,
+        "inviter_name": inviter.full_name if inviter else None,
+        "status": invite.status,
+        "created_at": invite.created_at.isoformat() if invite.created_at else None,
+    }
+
+
+@router.get("/invitations")
+def list_invitations(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    invites = db.query(RoomInvite).filter(
+        RoomInvite.invited_user_id == current_user.id,
+        RoomInvite.status == "pending",
+    ).order_by(RoomInvite.id.desc()).all()
+    results = []
+    for invite in invites:
+        room = db.query(Room).filter(Room.id == invite.room_id, Room.is_active.is_(True)).first()
+        if room is None:
+            continue
+        inviter = db.query(User).filter(User.id == invite.created_by).first()
+        results.append(serialize_invitation(invite, room, inviter))
+    return results
+
+
+@router.post("/invitations/{invite_id}/accept")
+def accept_invitation(invite_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    invite = db.query(RoomInvite).filter(
+        RoomInvite.id == invite_id,
+        RoomInvite.invited_user_id == current_user.id,
+        RoomInvite.status == "pending",
+    ).first()
+    if invite is None:
+        raise HTTPException(status_code=404, detail="Invitation not found")
+    room = db.query(Room).filter(Room.id == invite.room_id, Room.is_active.is_(True)).first()
+    if room is None:
+        raise HTTPException(status_code=404, detail="Room not found")
+    if current_user.id not in (room.members or []):
+        room.members = [*(room.members or []), current_user.id]
+    invite.status = "accepted"
+    db.commit()
+    db.refresh(room)
+    return serialize_room(room, db)
+
+
+@router.post("/invitations/{invite_id}/decline")
+def decline_invitation(invite_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    invite = db.query(RoomInvite).filter(
+        RoomInvite.id == invite_id,
+        RoomInvite.invited_user_id == current_user.id,
+        RoomInvite.status == "pending",
+    ).first()
+    if invite is None:
+        raise HTTPException(status_code=404, detail="Invitation not found")
+    invite.status = "declined"
+    db.commit()
+    return {"declined": True, "invite_id": invite_id}
+
+
+@router.delete("/{room_id}/members/{user_id}")
+def remove_member(
+    user_id: int,
+    room: Room = Depends(require_room_member),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if room.created_by != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the conversation owner can remove members")
+    if user_id == room.created_by:
+        raise HTTPException(status_code=400, detail="The conversation owner cannot be removed")
+    if user_id not in (room.members or []):
+        raise HTTPException(status_code=404, detail="User is not a room member")
+    room.members = [member_id for member_id in (room.members or []) if member_id != user_id]
+    db.commit()
+    return {"removed": True, "user_id": user_id, "room_id": room.id}
+
+
+@router.delete("/{room_id}/membership")
+def leave_room(
+    room: Room = Depends(require_room_member),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if room.created_by == current_user.id:
+        raise HTTPException(status_code=400, detail="The conversation owner cannot leave the room")
+    room.members = [member_id for member_id in (room.members or []) if member_id != current_user.id]
+    db.commit()
+    return {"left": True, "room_id": room.id}
+
+
+@router.post("/{room_id}/invite-link")
+def create_invite_link(
+    room: Room = Depends(require_room_member),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Create a shareable link that lets an authenticated user join this room."""
+    invite = RoomInvite(room_id=room.id, token=secrets.token_urlsafe(32), created_by=current_user.id)
+    db.add(invite)
+    db.commit()
+    return {"token": invite.token, "room_id": room.id}
+
+
+@router.post("/invites/{token}/accept")
+def accept_invite_link(
+    token: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    invite = db.query(RoomInvite).filter(RoomInvite.token == token).first()
+    if invite is None:
+        raise HTTPException(status_code=404, detail="Invite link is invalid or expired")
+    room = db.query(Room).filter(Room.id == invite.room_id, Room.is_active.is_(True)).first()
+    if room is None:
+        raise HTTPException(status_code=404, detail="Room not found")
+    if current_user.id not in (room.members or []):
+        room.members = [*(room.members or []), current_user.id]
+        db.commit()
+        db.refresh(room)
+    return serialize_room(room, db)
 
 
 @router.post("/{room_id}/summary")

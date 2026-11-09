@@ -45,6 +45,18 @@ class Room(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
+class RoomInvite(Base):
+    __tablename__ = "room_invites"
+
+    id = Column(Integer, primary_key=True, index=True)
+    room_id = Column(Integer, ForeignKey("rooms.id"), nullable=False, index=True)
+    token = Column(String(128), nullable=False, unique=True, index=True)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    invited_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    status = Column(String(20), nullable=False, default="pending", index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
 class Message(Base):
     __tablename__ = "messages"
 

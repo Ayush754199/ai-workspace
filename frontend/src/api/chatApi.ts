@@ -29,6 +29,19 @@ export type ChatMessage = {
   created_at: string | null;
 };
 
+export type RoomInvitation = {
+  id: number;
+  room_id: number;
+  room_name: string;
+  invited_user_id: number;
+  created_by: number;
+  inviter_name: string | null;
+  status: string;
+  created_at: string | null;
+};
+
+export type ChatUser = RoomMember;
+
 import { apiBaseUrl } from "./client";
 
 async function request<T>(token: string, path: string, options?: RequestInit): Promise<T> {
@@ -51,16 +64,31 @@ async function request<T>(token: string, path: string, options?: RequestInit): P
 
 export const chatApi = {
   listRooms: (token: string) => request<ChatRoom[]>(token, "/api/v1/rooms"),
+  searchUsers: (token: string, query: string) =>
+    request<ChatUser[]>(token, `/api/v1/rooms/users/search?q=${encodeURIComponent(query)}`),
   listMessages: (token: string, roomId: number, beforeId?: number) =>
     request<ChatMessage[]>(token, `/api/v1/rooms/${roomId}/messages?limit=50${beforeId ? `&before_id=${beforeId}` : ""}`),
   sendMessage: (token: string, roomId: number, content: string) =>
     request<ChatMessage>(token, `/api/v1/rooms/${roomId}/messages`, { method: "POST", body: JSON.stringify({ content }) }),
   inviteMember: (token: string, roomId: number, identifier: string) =>
-    request<{ message: string; user_id: number }>(token, `/api/v1/rooms/${roomId}/members`, { method: "POST", body: JSON.stringify({ identifier }) }),
+    request<{ message: string; user_id: number; status: string }>(token, `/api/v1/rooms/${roomId}/members`, { method: "POST", body: JSON.stringify({ identifier }) }),
+  invitations: (token: string) => request<RoomInvitation[]>(token, "/api/v1/rooms/invitations"),
+  acceptInvitation: (token: string, invitationId: number) =>
+    request<ChatRoom>(token, `/api/v1/rooms/invitations/${invitationId}/accept`, { method: "POST" }),
+  declineInvitation: (token: string, invitationId: number) =>
+    request<{ declined: boolean }>(token, `/api/v1/rooms/invitations/${invitationId}/decline`, { method: "POST" }),
+  createInviteLink: (token: string, roomId: number) =>
+    request<{ token: string; room_id: number }>(token, `/api/v1/rooms/${roomId}/invite-link`, { method: "POST" }),
+  acceptInviteLink: (token: string, inviteToken: string) =>
+    request<ChatRoom>(token, `/api/v1/rooms/invites/${encodeURIComponent(inviteToken)}/accept`, { method: "POST" }),
   createRoom: (token: string, name: string) =>
     request<ChatRoom>(token, "/api/v1/rooms", { method: "POST", body: JSON.stringify({ name, room_type: "chat" }) }),
   updateRoom: (token: string, roomId: number, update: { name?: string; is_pinned?: boolean; is_archived?: boolean }) =>
     request<ChatRoom>(token, `/api/v1/rooms/${roomId}`, { method: "PATCH", body: JSON.stringify(update) }),
   deleteRoom: (token: string, roomId: number) =>
     request<{ deleted: boolean }>(token, `/api/v1/rooms/${roomId}`, { method: "DELETE" }),
+  removeMember: (token: string, roomId: number, userId: number) =>
+    request<{ removed: boolean }>(token, `/api/v1/rooms/${roomId}/members/${userId}`, { method: "DELETE" }),
+  leaveRoom: (token: string, roomId: number) =>
+    request<{ left: boolean }>(token, `/api/v1/rooms/${roomId}/membership`, { method: "DELETE" }),
 };

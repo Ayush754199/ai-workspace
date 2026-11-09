@@ -17,7 +17,7 @@ type ModelRow = {
 };
 type Usage = { days: number; total_requests: number; total_units: number; by_provider: Record<string, number>; by_day: Record<string, number>; unique_users: number };
 type LogRow = { id: number; user_id: number | null; provider: string; model: string; status: string; units: number; request_id: string; created_at: string | null };
-type UserRow = { id: number; email: string; full_name: string | null; role: string; is_active: boolean; is_admin: boolean };
+type UserRow = { id: number; email: string; full_name: string | null; role: string; is_active: boolean; is_admin: boolean; image_generation?: boolean; video_generation?: boolean };
 type CapabilityQuota = { daily_limit: number; daily_used: number; reserved: number };
 type Quota = { daily_limit: number; per_chat_limit: number; daily_used: number; image: CapabilityQuota; video: CapabilityQuota };
 
@@ -87,7 +87,9 @@ const AdminConsole: React.FC<{ tab: "providers" | "quotas" | "usage" | "logs" | 
   const loadQuotas = useCallback(async () => {
     if (!token) return;
     await run(async () => {
-      setUsers(await request("/users"));
+      const [userRows, permissionRows] = await Promise.all([request("/users"), request("/video/users")]);
+      const permissions = new Map(permissionRows.map((row: UserRow) => [row.id, row]));
+      setUsers(userRows.map((user: UserRow) => ({ ...user, image_generation: permissions.get(user.id)?.image_generation ?? false, video_generation: permissions.get(user.id)?.video_generation ?? false })));
     });
   }, [token, request]);
 
@@ -205,6 +207,13 @@ const AdminConsole: React.FC<{ tab: "providers" | "quotas" | "usage" | "logs" | 
       setNotice(`${key} ${enabled ? "enabled" : "disabled"}`);
     });
 
+  const toggleUserPermission = (userId: number, feature: "image_generation" | "video_generation", enabled: boolean) =>
+    run(async () => {
+      await request(`/video/users/${userId}/feature`, { method: "PATCH", body: JSON.stringify({ feature, enabled }) });
+      setUsers((current) => current.map((user) => user.id === userId ? { ...user, [feature]: enabled } : user));
+      setNotice(`${feature === "image_generation" ? "Image" : "Video"} access ${enabled ? "granted" : "revoked"}`);
+    });
+
   return (
     <section className="admin-console">
       {error && <p className="admin-error" role="alert">{error}</p>}
@@ -317,6 +326,15 @@ const AdminConsole: React.FC<{ tab: "providers" | "quotas" | "usage" | "logs" | 
                   <input type="number" min={1} value={quota.per_chat_limit} onChange={(e) => setQuota({ ...quota, per_chat_limit: Number(e.target.value) })} />
                 </label>
                 <button className="primary-button" onClick={saveQuota}>Save limits</button>
+                {selectedUser != null && <>
+                  <h3 className="admin-mt">Media access</h3>
+                  <p className="admin-hint">Users cannot generate images or videos until access is granted here.</p>
+                  {(["image_generation", "video_generation"] as const).map((feature) => {
+                    const user = users.find((item) => item.id === selectedUser);
+                    const enabled = Boolean(user?.[feature]);
+                    return <div className="admin-row" key={feature}><strong>{feature === "image_generation" ? "Image generation" : "Video generation"}</strong><button className={enabled ? "status-on" : "status-off"} onClick={() => toggleUserPermission(selectedUser, feature, !enabled)}>{enabled ? "Granted" : "Revoked"}</button></div>;
+                  })}
+                </>}
               </div>
             ) : (
               <p className="admin-hint">Select a user to edit their daily and per-chat limits.</p>

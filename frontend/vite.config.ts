@@ -20,5 +20,7 @@ export default defineConfig({
       ],
     },
   })],
-  base: './'
+  // The frontend is served from the site root. A relative base breaks asset
+  // URLs on BrowserRouter deep links such as /chat and /video-studio/editor.
+  base: '/'
 })

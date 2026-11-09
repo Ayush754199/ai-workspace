@@ -60,6 +60,9 @@ def test_non_member_cannot_see_or_use_room(client):
 
 def test_message_snapshot_and_invites(client):
     api, users, room = client
+    search = api.get("/api/v1/rooms/users/search?q=two", headers=auth(users[0]))
+    assert search.status_code == 200
+    assert [(item["id"], item["email"]) for item in search.json()] == [(users[1].id, "two@example.com")]
     response = api.post(f"/api/v1/rooms/{room.id}/messages", headers=auth(users[0]), json={"content": "hello"})
     assert response.status_code == 200
     assert response.json()["sender_name"] == "One User"
@@ -101,3 +104,25 @@ def test_admin_can_inspect_and_audit(client):
         assert db.query(AdminAuditLog).filter(AdminAuditLog.room_id == room.id).count() == 1
     finally:
         db.close()
+
+
+def test_room_invitation_accept_decline_remove_and_leave(client):
+    api, users, room = client
+    sent = api.post(f"/api/v1/rooms/{room.id}/members", headers=auth(users[0]), json={"identifier": "two@example.com"})
+    assert sent.status_code == 200 and sent.json()["status"] == "pending"
+    invitations = api.get("/api/v1/rooms/invitations", headers=auth(users[1]))
+    assert invitations.status_code == 200 and len(invitations.json()) == 1
+    invitation_id = invitations.json()[0]["id"]
+    assert api.post(f"/api/v1/rooms/invitations/{invitation_id}/accept", headers=auth(users[1])).status_code == 200
+    assert api.delete(f"/api/v1/rooms/{room.id}/members/{users[1].id}", headers=auth(users[0])).status_code == 200
+
+    sent_again = api.post(f"/api/v1/rooms/{room.id}/members", headers=auth(users[0]), json={"identifier": "two@example.com"})
+    invitation_id = api.get("/api/v1/rooms/invitations", headers=auth(users[1])).json()[0]["id"]
+    assert sent_again.status_code == 200
+    assert api.post(f"/api/v1/rooms/invitations/{invitation_id}/decline", headers=auth(users[1])).status_code == 200
+
+    accepted_again = api.post(f"/api/v1/rooms/{room.id}/members", headers=auth(users[0]), json={"identifier": "two@example.com"})
+    invitation_id = api.get("/api/v1/rooms/invitations", headers=auth(users[1])).json()[0]["id"]
+    assert accepted_again.status_code == 200
+    assert api.post(f"/api/v1/rooms/invitations/{invitation_id}/accept", headers=auth(users[1])).status_code == 200
+    assert api.delete(f"/api/v1/rooms/{room.id}/membership", headers=auth(users[1])).status_code == 200

@@ -100,7 +100,12 @@ def test_acl_10_pending_invite_cannot_read(qa):
     room_id = client.post("/api/v1/rooms", headers=h(users["alice"]), json={"name": "invited soon", "room_type": "group"}).json()["id"]
     # bob has NOT been invited yet: read must be refused (ACL-10).
     assert client.get(f"/api/v1/rooms/{room_id}/messages", headers=h(users["bob"])).status_code == 403
-    client.post(f"/api/v1/rooms/{room_id}/members", headers=h(users["alice"]), json={"identifier": "bob2@example.com"})
+    invite = client.post(f"/api/v1/rooms/{room_id}/members", headers=h(users["alice"]), json={"identifier": "bob2@example.com"})
+    assert invite.status_code == 200
+    pending = client.get("/api/v1/rooms/invitations", headers=h(users["bob"]))
+    assert pending.status_code == 200 and len(pending.json()) == 1
+    accepted = client.post(f"/api/v1/rooms/invitations/{pending.json()[0]['id']}/accept", headers=h(users["bob"]))
+    assert accepted.status_code == 200
     assert client.get(f"/api/v1/rooms/{room_id}/messages", headers=h(users["bob"])).status_code == 200
 
 
@@ -127,7 +132,10 @@ def test_msg_09_refresh_returns_the_same_history(qa):
     client, users, _ = qa
     room_id = client.post("/api/v1/rooms", headers=h(users["alice"]), json={"name": "poll", "room_type": "group"}).json()["id"]
     client.post(f"/api/v1/rooms/{room_id}/messages", headers=h(users["alice"]), json={"content": "one"})
-    client.post(f"/api/v1/rooms/{room_id}/members", headers=h(users["alice"]), json={"identifier": "bob2@example.com"})
+    invite = client.post(f"/api/v1/rooms/{room_id}/members", headers=h(users["alice"]), json={"identifier": "bob2@example.com"})
+    invitation = client.get("/api/v1/rooms/invitations", headers=h(users["bob"])).json()[0]
+    assert invite.status_code == 200
+    assert client.post(f"/api/v1/rooms/invitations/{invitation['id']}/accept", headers=h(users["bob"])).status_code == 200
     first = client.get(f"/api/v1/rooms/{room_id}/messages", headers=h(users["bob"])).json()
     second = client.get(f"/api/v1/rooms/{room_id}/messages", headers=h(users["bob"])).json()
     assert first == second  # polling/refresh is idempotent
@@ -287,6 +295,8 @@ def test_con_02_two_concurrent_sessions_share_one_history(qa):
     client, users, _ = qa
     room_id = client.post("/api/v1/rooms", headers=h(users["alice"]), json={"name": "two tabs", "room_type": "group"}).json()["id"]
     client.post(f"/api/v1/rooms/{room_id}/members", headers=h(users["alice"]), json={"identifier": "bob2@example.com"})
+    invitation = client.get("/api/v1/rooms/invitations", headers=h(users["bob"])).json()[0]
+    assert client.post(f"/api/v1/rooms/invitations/{invitation['id']}/accept", headers=h(users["bob"])).status_code == 200
 
     def send(index):
         return client.post(f"/api/v1/rooms/{room_id}/messages", headers=h(users["alice" if index % 2 == 0 else "bob"]), json={"content": f"tab-{index}"}).status_code

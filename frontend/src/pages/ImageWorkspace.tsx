@@ -69,7 +69,7 @@ const ImageWorkspace: React.FC = () => {
             <h1>Create and edit images</h1>
             <p className="page-subtitle">Generate from a prompt, edit an uploaded image, remove backgrounds, enhance, or ask the vision model about it.</p>
           </div>
-          <a className="tool-link" href="/chat">← Back to chat</a>
+          <a className="tool-link" href="/dashboard">← Back to chat</a>
         </header>
 
         {error && <div className="tool-error" role="alert">{error}</div>}

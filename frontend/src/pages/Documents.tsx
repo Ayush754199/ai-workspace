@@ -58,7 +58,7 @@ const Documents: React.FC = () => {
             <h1>PDF &amp; document workspace</h1>
             <p className="page-subtitle">Upload a PDF, Word, PowerPoint, Excel, CSV or text file to extract, summarise or ask questions about it.</p>
           </div>
-          <a className="tool-link" href="/chat">← Back to chat</a>
+          <a className="tool-link" href="/dashboard">← Back to chat</a>
         </header>
 
         {error && <div className="tool-error" role="alert">{error}</div>}

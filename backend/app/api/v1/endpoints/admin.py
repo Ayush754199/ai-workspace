@@ -368,6 +368,7 @@ def list_video_users(_: User = Depends(get_current_admin), db: Session = Depends
                 "video_generation": permissions.get("video_generation", False),
                 "video_editing": permissions.get("video_editing", False),
                 "video_understanding": permissions.get("video_understanding", False),
+                "image_generation": permissions.get("image_generation", False),
             }
         )
     return result
@@ -380,8 +381,8 @@ def toggle_video_feature(
     _: User = Depends(get_current_admin),
     db: Session = Depends(get_db),
 ):
-    if update.feature not in {"video_generation", "video_editing", "video_understanding"}:
-        raise HTTPException(status_code=400, detail="Unsupported video feature")
+    if update.feature not in {"image_generation", "video_generation", "video_editing", "video_understanding"}:
+        raise HTTPException(status_code=400, detail="Unsupported media feature")
     user = db.query(User).filter(User.id == user_id).first()
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")

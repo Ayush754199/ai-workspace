@@ -22,7 +22,7 @@ from app.core.database import get_db
 from app.core.config import settings
 from app.services.ai_gateway.quota import QuotaService, QuotaError
 from app.db.session import mongo
-from app.models.user import User
+from app.models.user import User, UserFeaturePermission
 from app.services.document_generator import GENERATORS
 import requests
 
@@ -241,6 +241,30 @@ async def image_studio(
     except QuotaError as exc:
         raise HTTPException(status_code=429, detail=str(exc)) from exc
 
+    uploaded_data: bytes | None = None
+    if image is not None:
+        uploaded_data = await image.read()
+        if len(uploaded_data) > MAX_FILE_SIZE:
+            QuotaService().release(db, reservation.reservation_id, failure=True)
+            raise HTTPException(status_code=413, detail="Image exceeds the 20 MB limit")
+        try:
+            Image.open(io.BytesIO(uploaded_data)).verify()
+        except Exception as exc:
+            QuotaService().release(db, reservation.reservation_id, failure=True)
+            raise HTTPException(status_code=400, detail="Invalid image file") from exc
+
+    permission = (
+        db.query(UserFeaturePermission)
+        .filter(
+            UserFeaturePermission.user_id == current_user.id,
+            UserFeaturePermission.feature == "image_generation",
+        )
+        .first()
+    )
+    if not permission or not permission.enabled:
+        QuotaService().release(db, reservation.reservation_id, failure=True)
+        raise HTTPException(status_code=403, detail="image_generation is disabled for this user")
+
     credentials = get_provider_credentials("Hugging Face")
     image_endpoint = settings.HF_IMAGE_API_URL.strip()
     cloudflare_ready = bool(settings.CLOUDFLARE_ACCOUNT_ID.strip() and settings.CLOUDFLARE_API_TOKEN.strip())
@@ -255,15 +279,7 @@ async def image_studio(
         if not edit_space:
             QuotaService().release(db, reservation.reservation_id, failure=True)
             raise HTTPException(status_code=503, detail="Image editing is unavailable until an eligible editing Space is configured. Set HF_IMAGE_EDIT_SPACE on the server.")
-        data = await image.read()
-        if len(data) > MAX_FILE_SIZE:
-            QuotaService().release(db, reservation.reservation_id, failure=True)
-            raise HTTPException(status_code=413, detail="Image exceeds the 20 MB limit")
-        try:
-            Image.open(io.BytesIO(data)).verify()
-        except Exception as exc:
-            QuotaService().release(db, reservation.reservation_id, failure=True)
-            raise HTTPException(status_code=400, detail="Invalid image file") from exc
+        data = uploaded_data or b""
         try:
             from gradio_client import Client, handle_file
             from tempfile import NamedTemporaryFile
