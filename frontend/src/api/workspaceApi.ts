@@ -98,7 +98,7 @@ export const chatV2 = {
     request<{ deleted: number }>(token, `/chat/v2/conversations/${id}`, { method: "DELETE" }),
   exportConversation: (token: string, id: number) =>
     request<{ title: string; markdown: string }>(token, `/chat/v2/conversations/${id}/export`),
-  send: (token: string, id: number, content: string, model?: string, attachmentIds: number[] = [], webSearch = false) =>
+  send: (token: string, id: number, content: string, model?: string, attachmentIds: number[] = [], webSearch = true) =>
     request<{ user_message: ChatMessage; message: ChatMessage }>(token, `/chat/v2/conversations/${id}/messages`, {
       method: "POST",
       body: JSON.stringify({ content, model, attachment_ids: attachmentIds, web_search: webSearch }),

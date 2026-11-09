@@ -57,14 +57,17 @@ class SendRequest(BaseModel):
     content: str = Field(default="", max_length=32_000)
     model: str | None = None
     attachment_ids: list[int] = Field(default_factory=list)
-    web_search: bool = False
+    # Fresh chat sessions use web search by default; the UI may still send an
+    # explicit value when a future preference or admin policy overrides it.
+    web_search: bool = True
 
 
 class RegenerateRequest(BaseModel):
     message_id: int
     # ``regenerate`` reads payload.web_search to decide its system prompt; the
     # field was missing from the model, so every regenerate raised AttributeError.
-    web_search: bool = False
+    # Keep regeneration consistent with a newly opened chat.
+    web_search: bool = True
 
 
 def _conversation(db: Session, user: User, conversation_id: int) -> AiConversation:
