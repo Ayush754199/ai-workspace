@@ -87,7 +87,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setToken(data.access_token);
       localStorage.setItem("auth_token", data.access_token);
       setUser(currentUser);
-      navigate(`/dashboard${location.search}`);
+      navigate(`/assistant${location.search}`);
     } catch (error: any) {
       localStorage.removeItem("auth_token");
       throw new Error(error?.message || "Could not load your profile after signing in");
