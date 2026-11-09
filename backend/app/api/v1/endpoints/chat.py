@@ -108,6 +108,39 @@ async def call_gemini(prompt: str, attachments: list[tuple[bytes, str]] | None =
     return response.text or ""
 
 
+def generate_gemini_image(prompt: str, credentials: tuple[ProviderCredential, ...]) -> bytes:
+    """Generate an image through Gemini's native image output API."""
+    from google import genai
+    from google.genai import types
+
+    def generate(api_key: str) -> bytes:
+        client = genai.Client(api_key=api_key)
+        try:
+            response = client.models.generate_content(
+                model=settings.GEMINI_IMAGE_MODEL,
+                contents=[prompt],
+                config=types.GenerateContentConfig(response_modalities=["IMAGE"]),
+            )
+            for part in getattr(response, "parts", []) or []:
+                inline_data = getattr(part, "inline_data", None)
+                data = getattr(inline_data, "data", None) if inline_data else None
+                if data:
+                    return bytes(data)
+            raise RuntimeError("Gemini returned no image data")
+        finally:
+            close = getattr(client, "close", None)
+            if callable(close):
+                close()
+
+    return call_with_key_rotation(
+        "Gemini",
+        generate,
+        endpoint="Gemini/image-generation",
+        payload={"model": settings.GEMINI_IMAGE_MODEL, "prompt": prompt},
+        credentials=credentials,
+    )
+
+
 async def load_session_context(session_id: str, user_id: int) -> str:
     if not mongo.enabled:
         return ""
@@ -266,6 +299,9 @@ async def image_studio(
         raise HTTPException(status_code=403, detail="image_generation is disabled for this user")
 
     credentials = get_provider_credentials("Hugging Face")
+    gemini_credentials = get_provider_credentials("Gemini")
+    if not gemini_credentials and settings.GEMINI_API_KEY != "default-test-key":
+        gemini_credentials = (ProviderCredential(settings.GEMINI_API_KEY, "GEMINI_API_KEY"),)
     image_endpoint = settings.HF_IMAGE_API_URL.strip()
     # `cfat_` R2 S3 tokens validate at Cloudflare but cannot call Workers AI.
     # Do not select that incompatible token as the primary image provider.
@@ -274,12 +310,13 @@ async def image_studio(
         and settings.CLOUDFLARE_API_TOKEN.strip()
         and not settings.CLOUDFLARE_API_TOKEN.strip().startswith("cfat_")
     )
-    if not credentials and not cloudflare_ready:
+    gemini_ready = bool(gemini_credentials)
+    if not credentials and not cloudflare_ready and not gemini_ready:
         QuotaService().release(db, reservation.reservation_id, failure=True)
-        raise HTTPException(status_code=503, detail="Hugging Face image generation is not configured. Set HF_TOKEN (or HF_TOKEN_1/HF_TOKENS) on the server.")
-    if not image_endpoint and not cloudflare_ready:
+        raise HTTPException(status_code=503, detail="Image generation is not configured. Set GEMINI_API_KEY (or GEMINI_KEY_1) on the server.")
+    if not image_endpoint and not cloudflare_ready and not gemini_ready:
         QuotaService().release(db, reservation.reservation_id, failure=True)
-        raise HTTPException(status_code=503, detail="Hugging Face image generation is not configured. Set HF_IMAGE_API_URL on the server.")
+        raise HTTPException(status_code=503, detail="Image generation is not configured. Set HF_IMAGE_API_URL or Gemini credentials on the server.")
     if image is not None:
         edit_space = settings.HF_IMAGE_EDIT_SPACE.strip()
         if not edit_space:
@@ -334,20 +371,35 @@ async def image_studio(
         try:
             provider_name = "cloudflare" if cloudflare_ready else "huggingface"
             try:
-                output = generate("") if cloudflare_ready else call_with_key_rotation("Hugging Face", generate, endpoint=image_endpoint, payload={"operation": "image_generation"}, credentials=credentials)
+                if cloudflare_ready:
+                    output = generate("")
+                elif credentials and image_endpoint:
+                    output = call_with_key_rotation("Hugging Face", generate, endpoint=image_endpoint, payload={"operation": "image_generation"}, credentials=credentials)
+                else:
+                    raise RuntimeError("Hugging Face image generation is not configured")
             except Exception:
                 # The Cloudflare credential may be an R2 token rather than a
-                # Workers AI token. If HF is configured, try it before failing.
-                if not cloudflare_ready or not credentials or not image_endpoint:
+                # Workers AI token. Try HF, then Gemini as the configured image fallback.
+                if credentials and image_endpoint:
+                    def hf_fallback(token: str) -> bytes:
+                        response = requests.post(image_endpoint, headers={"Authorization": f"Bearer {token}"}, json={"inputs": prompt}, timeout=180)
+                        response.raise_for_status()
+                        if "application/json" in response.headers.get("content-type", ""):
+                            raise RuntimeError("Hugging Face returned a non-image response")
+                        return response.content
+                    try:
+                        output = call_with_key_rotation("Hugging Face", hf_fallback, endpoint=image_endpoint, payload={"operation": "image_generation_fallback"}, credentials=credentials)
+                        provider_name = "huggingface-fallback"
+                    except Exception:
+                        if not gemini_ready:
+                            raise
+                        output = generate_gemini_image(prompt, gemini_credentials)
+                        provider_name = "gemini-fallback"
+                elif gemini_ready:
+                    output = generate_gemini_image(prompt, gemini_credentials)
+                    provider_name = "gemini"
+                else:
                     raise
-                def hf_fallback(token: str) -> bytes:
-                    response = requests.post(image_endpoint, headers={"Authorization": f"Bearer {token}"}, json={"inputs": prompt}, timeout=180)
-                    response.raise_for_status()
-                    if "application/json" in response.headers.get("content-type", ""):
-                        raise RuntimeError("Hugging Face returned a non-image response")
-                    return response.content
-                output = call_with_key_rotation("Hugging Face", hf_fallback, endpoint=image_endpoint, payload={"operation": "image_generation_fallback"}, credentials=credentials)
-                provider_name = "huggingface-fallback"
             QuotaService().commit(db, reservation.reservation_id, detail={"operation": "image_generation", "provider": provider_name})
         except Exception as exc:
             QuotaService().release(db, reservation.reservation_id, failure=True)

@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str = Field(default="default-test-key", min_length=1)
     # Single source of truth for the Gemini model; keep in sync with config.GEMINI_MODEL.
     GEMINI_MODEL: str = Field(default="gemini-3.8-flash", min_length=1)
+    GEMINI_IMAGE_MODEL: str = Field(default="gemini-3.1-flash-image", min_length=1)
     MONGODB_URL: str = ""
     MONGODB_DATABASE: str = "enterprise_ai_db"
     # One-time operational bootstrap for an administrator. Keep empty in normal
