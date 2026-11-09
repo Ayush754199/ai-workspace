@@ -491,10 +491,15 @@ async def image_studio(
                         output = generate_gemini_image(prompt, gemini_credentials)
                         provider_name = "gemini"
                     except Exception:
-                        if not fal_ready:
+                        if pollinations_ready:
+                            from backend.pollinations_media import generate_image
+                            output = generate_image(prompt)
+                            provider_name = "pollinations-fallback"
+                        elif not fal_ready:
                             raise
-                        output = generate_fal_image(prompt)
-                        provider_name = "fal-fallback"
+                        else:
+                            output = generate_fal_image(prompt)
+                            provider_name = "fal-fallback"
                 elif fal_ready:
                     output = generate_fal_image(prompt)
                     provider_name = "fal"
