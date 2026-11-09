@@ -4,13 +4,14 @@ import { useAuth } from "../contexts/AuthContext";
 
 const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, logout } = useAuth();
+  const [mobileNavOpen, setMobileNavOpen] = React.useState(false);
   const navClass = ({ isActive }: { isActive: boolean }) => `shell-nav-item${isActive ? " active" : ""}`;
 
   return (
-    <div className="workspace-shell">
+    <div className={`workspace-shell${mobileNavOpen ? " mobile-nav-open" : ""}`}>
       <aside className="workspace-sidebar" aria-label="Primary navigation">
         <div className="workspace-brand"><span className="brand-mark">✦</span><span>AI Workspace</span></div>
-        <nav className="shell-nav">
+        <nav className="shell-nav" onClick={() => setMobileNavOpen(false)}>
           <p className="shell-nav-label">Workspace</p>
           <NavLink className={navClass} to="/assistant"><span>✦</span><span className="shell-nav-text">Assistant</span></NavLink>
           <NavLink className={navClass} to="/dashboard"><span>⌁</span><span className="shell-nav-text">Rooms</span></NavLink>
@@ -33,6 +34,10 @@ const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         </div>
       </aside>
     <main className="workspace-main">
+      <button className="mobile-nav-toggle" type="button" aria-label={mobileNavOpen ? "Close navigation" : "Open navigation"} aria-expanded={mobileNavOpen} onClick={() => setMobileNavOpen((open) => !open)}>
+        {mobileNavOpen ? "×" : "☰"}
+      </button>
+      {mobileNavOpen && <button className="mobile-nav-backdrop" type="button" aria-label="Close navigation" onClick={() => setMobileNavOpen(false)} />}
       <div className="mobile-account-name" title={user?.full_name || user?.email || "Account"}>
         <span className="account-avatar">{(user?.full_name || user?.email || "U").slice(0, 1).toUpperCase()}</span>
         <span>{user?.full_name || user?.email || "Account"}</span>
