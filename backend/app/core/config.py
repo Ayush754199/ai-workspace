@@ -117,4 +117,21 @@ class Settings(BaseSettings):
             raise ValueError("JWT_SECRET must be a non-default secure value")
         return value
 
-settings = Settings()
+
+try:
+    settings = Settings()
+except Exception as exc:  # noqa: BLE001 - re-raised with deploy guidance
+    # The raw pydantic error ("String should have at least 32 characters") is the
+    # first thing a failed deploy prints and says nothing about where to fix it.
+    # Hosted platforms have no .env file, so the value has to be added to the
+    # service environment instead.
+    message = str(exc)
+    if "JWT_SECRET" in message:
+        raise RuntimeError(
+            "JWT_SECRET is missing or too short (minimum 32 characters).\n"
+            "Local:   set it in backend/.env (see backend/.env.example).\n"
+            "Render:  Dashboard -> your service -> Environment -> add JWT_SECRET.\n"
+            "Generate: python -c \"import secrets; print(secrets.token_urlsafe(48))\"\n"
+            f"Original error: {message}"
+        ) from exc
+    raise

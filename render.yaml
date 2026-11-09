@@ -1,0 +1,56 @@
+# Render blueprint for the AI Workspace backend.
+#
+# Why this file exists: Render has no backend/.env (it is gitignored), so every
+# value the app requires must be declared here or in the service environment.
+# A missing JWT_SECRET previously failed the deploy with pydantic's bare
+# "String should have at least 32 characters" before uvicorn even started.
+#
+# Apply it with: Render Dashboard -> New -> Blueprint -> pick this repository.
+# Existing services can also just copy the envVars below into
+# Dashboard -> your service -> Environment.
+
+services:
+  - type: web
+    name: ai-workspace
+    runtime: python
+    region: singapore
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r ../requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/v1/health
+    autoDeploy: true
+    envVars:
+      # Required. `generateValue: true` makes Render create a strong random
+      # secret on first deploy and keep it stable across redeploys.
+      - key: JWT_SECRET
+        generateValue: true
+
+      # Documents are served from the container filesystem unless this is set.
+      - key: API_DOCS_ENABLED
+        value: "false"
+
+      # Free-tier deployment runs the gateway in dev mode (mock provider only).
+      # Set this to `live` and add a provider key once one is configured.
+      - key: AI_GATEWAY_MODE
+        value: "dev"
+
+      # SQLite default lives inside the container and is lost on redeploy.
+      # Point DATABASE_URL at a managed Postgres (or a Render disk) to persist data.
+      # - key: DATABASE_URL
+      #   sync: false
+
+      # Optional provider credentials. `sync: false` = prompted in the dashboard,
+      # never stored in git.
+      - key: MONGODB_URL
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GROQ_API_KEY_1
+        sync: false
+      - key: OPENROUTER_KEY_1
+        sync: false
+      - key: HF_TOKEN
+        sync: false
+      - key: FAL_KEY
+        sync: false

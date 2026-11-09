@@ -52,6 +52,40 @@ cd backend && uvicorn app.main:app --host 0.0.0.0 --port 8000
 cd frontend && VITE_API_BASE_URL=https://api.example.com npm run build   # serve dist/ with nginx
 ```
 
+## 2a. Render (hosted)
+
+Render has no `.env` file -- `backend/.env` is gitignored and never shipped. Every
+value from step 1 must exist in **Dashboard -> your service -> Environment**.
+
+The repository ships `render.yaml`, so pressing **New -> Blueprint** creates the
+service with `JWT_SECRET` auto-generated. If the service already exists, add the
+variables by hand.
+
+Missing `JWT_SECRET` is the most common first-deploy failure. The app now fails
+with an explicit message instead of a raw pydantic error:
+
+```
+RuntimeError: JWT_SECRET is missing or too short (minimum 32 characters).
+Local:   set it in backend/.env (see backend/.env.example).
+Render:  Dashboard -> your service -> Environment -> add JWT_SECRET.
+Generate: python -c "import secrets; print(secrets.token_urlsafe(48))"
+```
+
+Create a value with:
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(48))"
+```
+
+Notes for the free plan:
+
+- The container filesystem is ephemeral. SQLite (`backend_app.db`) is reset on
+  every deploy -- set `DATABASE_URL` to a managed Postgres to keep data.
+- `AI_GATEWAY_MODE=dev` keeps the mock provider; switch to `live` only after a
+  provider key is added.
+
+---
+
 The first registered user is **not** an admin automatically. Promote one:
 
 ```bash
