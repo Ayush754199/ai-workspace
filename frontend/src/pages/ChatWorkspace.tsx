@@ -289,7 +289,7 @@ const ChatWorkspace: React.FC = () => {
           setMessages((current) =>
             current.map((message) => {
               if (message.id === placeholder.id) return { ...normalizedFinal, attachments: [] };
-              if (message.id === optimistic.id) return final.role === "user" ? final : message;
+              if (message.id === optimistic.id) return final.role === "user" ? { ...final, attachments: optimistic.attachments } : message;
               return message;
             }),
           );
