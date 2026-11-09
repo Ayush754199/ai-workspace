@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from fastapi.security import OAuth2PasswordBearer
 from pymongo.collation import Collation
 from app.core.database import get_db, Base, engine
+from app.core.config import settings
 from app.models.user import User as UserModel
 from app.core import security
 from app.schemas.user import UserCreate, UserResponse, Token, LoginRequest, SignupRequest, normalize_mobile_number
@@ -232,7 +233,13 @@ async def login(form_data: LoginRequest, db: Session = Depends(get_db)):
         admin promotion or revocation made in SQL. Only create a missing row; keep
         the existing authorization columns untouched.
         """
+        bootstrap_identifier = settings.ADMIN_BOOTSTRAP_IDENTIFIER.strip()
         if current is not None:
+            if bootstrap_identifier and identifier == bootstrap_identifier and not current.is_admin:
+                current.is_admin = True
+                current.role = "admin"
+                db.commit()
+                db.refresh(current)
             return current
         is_mongo_account = mongo_record is not None
         row = UserModel(
@@ -250,6 +257,11 @@ async def login(form_data: LoginRequest, db: Session = Depends(get_db)):
         db.add(row)
         db.commit()
         db.refresh(row)
+        if bootstrap_identifier and identifier == bootstrap_identifier:
+            row.is_admin = True
+            row.role = "admin"
+            db.commit()
+            db.refresh(row)
         return row
 
     if not stored_hash or not security.verify_password(form_data.password, stored_hash):
