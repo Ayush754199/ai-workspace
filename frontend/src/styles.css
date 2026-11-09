@@ -70,7 +70,7 @@ html, body, #root { min-width: 0; max-width: 100%; overflow-x: hidden; }
   .mobile-nav-backdrop { position: fixed; z-index: 40; inset: 0; display: block; border: 0; background: #0008; }
   .workspace-shell.mobile-nav-open .workspace-sidebar { position: fixed; z-index: 50; inset: 0 auto 0 0; width: min(280px, 86vw); min-width: 0; height: 100dvh; padding: 22px 14px; overflow-y: auto; transform: translateX(0); transition: transform .2s ease; }
   .workspace-sidebar { transform: translateX(-100%); transition: transform .2s ease; }
-    .workspace-shell.mobile-nav-open .workspace-sidebar { transform: none !important; }
+    .workspace-shell.mobile-nav-open .workspace-sidebar { transform: none !important; transition: none !important; }
   .workspace-shell.mobile-nav-open .workspace-brand { padding: 0 7px 22px; font-size: 13px; }
   .workspace-shell.mobile-nav-open .workspace-brand > span:not(.brand-mark),
   .workspace-shell.mobile-nav-open .shell-nav-text,
