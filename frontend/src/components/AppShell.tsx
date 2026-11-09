@@ -14,7 +14,7 @@ const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         <nav className="shell-nav" onClick={() => setMobileNavOpen(false)}>
           <p className="shell-nav-label">Workspace</p>
           <NavLink className={navClass} to="/assistant"><span>✦</span><span className="shell-nav-text">Assistant</span></NavLink>
-          <NavLink className={navClass} to="/dashboard"><span>⌁</span><span className="shell-nav-text">Rooms</span></NavLink>
+          <NavLink className={navClass} to="/rooms"><span>⌁</span><span className="shell-nav-text">Rooms</span></NavLink>
           <p className="shell-nav-label">Video</p>
           <NavLink className={navClass} to="/video-studio" end><span>✦</span><span className="shell-nav-text">Video Generation</span></NavLink>
           <NavLink className={navClass} to="/video-studio/editor"><span>▣</span><span className="shell-nav-text">Video Editing</span></NavLink>

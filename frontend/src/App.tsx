@@ -26,7 +26,7 @@ const AdminRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isLoading } = useAuth();
   if (isLoading) return <h1>Loading...</h1>;
   if (!user) return <Navigate to="/login" replace />;
-  return user.is_admin ? <>{children}</> : <Navigate to="/dashboard" replace />;
+  return user.is_admin ? <>{children}</> : <Navigate to="/assistant" replace />;
 };
 
 const App: React.FC = () => {
@@ -37,9 +37,10 @@ const App: React.FC = () => {
           <Route path="/" element={<Navigate to="/assistant" replace />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
-          <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-          {/* Keep legacy tool links working while the room dashboard remains the chat home. */}
-          <Route path="/chat" element={<Navigate to="/dashboard" replace />} />
+          <Route path="/rooms" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+          {/* Legacy room URLs should land on the default assistant experience. */}
+          <Route path="/dashboard" element={<Navigate to="/assistant" replace />} />
+          <Route path="/chat" element={<Navigate to="/assistant" replace />} />
           <Route path="/assistant" element={<ProtectedRoute><ChatWorkspace /></ProtectedRoute>} />
           <Route path="/documents" element={<ProtectedRoute><Documents /></ProtectedRoute>} />
           <Route path="/images" element={<ProtectedRoute><ImageWorkspace /></ProtectedRoute>} />

@@ -34,7 +34,7 @@ const InviteMemberModal: React.FC<Props> = ({ onClose, onSubmit, onCreateLink, o
   const createLink = async () => {
     setLinkError("");
     const token = await onCreateLink();
-    if (token) setInviteLink(`${window.location.origin}/dashboard?invite=${encodeURIComponent(token)}`);
+    if (token) setInviteLink(`${window.location.origin}/rooms?invite=${encodeURIComponent(token)}`);
     else setLinkError("Unable to create invite link");
   };
 
