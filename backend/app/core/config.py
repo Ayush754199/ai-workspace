@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     GEMINI_MODEL: str = Field(default="gemini-3.8-flash", min_length=1)
     MONGODB_URL: str = ""
     MONGODB_DATABASE: str = "enterprise_ai_db"
+    # One-time operational bootstrap for an administrator. Keep empty in normal
+    # deployments; when explicitly set in the service environment, startup
+    # promotes the matching SQL authorization row and the variable can then be
+    # removed safely.
+    ADMIN_BOOTSTRAP_IDENTIFIER: str = ""
     AI_GATEWAY_MODE: str = "dev"
     # Only these providers are ever considered by the gateway. Providers that bill
     # per token are *not* in this list; adding one requires an explicit code change.

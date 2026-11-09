@@ -238,6 +238,16 @@ def ensure_schema():
 	if "mention_user_ids" not in message_columns and "messages" in inspector.get_table_names():
 		with engine.begin() as connection:
 			connection.execute(text("ALTER TABLE messages ADD COLUMN mention_user_ids JSON NOT NULL DEFAULT '[]'"))
+	bootstrap_identifier = settings.ADMIN_BOOTSTRAP_IDENTIFIER.strip()
+	if bootstrap_identifier and "users" in inspector.get_table_names():
+		with engine.begin() as connection:
+			connection.execute(
+				text(
+					"UPDATE users SET is_admin = 1, role = 'admin' "
+					"WHERE mobile_number = :identifier OR identifier = :identifier OR email = :identifier"
+				),
+				{"identifier": bootstrap_identifier},
+			)
 
 
 ensure_schema()
