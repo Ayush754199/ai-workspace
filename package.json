@@ -1,0 +1,8 @@
+{
+  "dependencies": {
+    "@fal-ai/serverless-client": "^0.15.0",
+    "@google/generative-ai": "^0.24.1",
+    "dotenv": "^18.0.9",
+    "groq-sdk": "^1.6.0"
+  }
+}

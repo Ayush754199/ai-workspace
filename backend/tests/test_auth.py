@@ -11,11 +11,39 @@ from datetime import datetime, UTC
 
 @pytest.fixture(scope="module", autouse=True)
 def setup_db():
-    # Create all tables once per test module
+    # Only make sure the schema exists. Never ``drop_all`` here: ``engine`` is the
+    # shared application database, so dropping it after this module destroyed the
+    # tables for every test file that ran afterwards ("no such table: users").
     Base.metadata.create_all(bind=engine)
     yield
-    # Drop all tables after tests
-    Base.metadata.drop_all(bind=engine)
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _clear_registration_fixture_user(setup_db):
+    """Remove this module's fixed-email fixture user before it runs.
+
+    ``setup_db`` no longer drops the shared schema, so a previous run leaves
+    ``test@example.com`` behind and ``test_register_user`` would get HTTP 400
+    ("already registered"). Only this module's own disposable accounts are
+    removed; no other data is touched.
+    """
+    from app.core.database import SessionLocal
+    from app.models.user import User
+
+    session = SessionLocal()
+    try:
+        session.query(User).filter(
+            User.email.in_([
+                "test@example.com",
+                "login@example.com",
+                "wrong@example.com",
+                "me@example.com",
+            ])
+        ).delete(synchronize_session=False)
+        session.commit()
+    finally:
+        session.close()
+    yield
 
 
 @pytest.fixture(scope="module")
@@ -35,18 +63,19 @@ def client(setup_db):
 
 
 def test_register_user(client):
-    user_in = UserCreate(email="test@example.com", password="secret123", full_name="Test User")
+    user_in = UserCreate(email="test@example.com", mobile_number="+919876543201", password="secret123", full_name="Test User")
     response = client.post("/auth/register", json=user_in.model_dump())
     assert response.status_code == 200
     data = response.json()
     assert data["email"] == "test@example.com"
+    assert data["mobile_number"] == "+919876543201"
     assert data["full_name"] == "Test User"
     assert "id" in data
 
 
 def test_login_success(client):
     # First register a user
-    user_in = UserCreate(email="login@example.com", password="password123", full_name="Login User")
+    user_in = UserCreate(email="login@example.com", mobile_number="+919876543202", password="password123", full_name="Login User")
     client.post("/auth/register", json=user_in.model_dump())
 
     # Now login
@@ -56,11 +85,13 @@ def test_login_success(client):
     token_data = response.json()
     assert "access_token" in token_data
     assert token_data["token_type"] == "bearer"
+    mobile_login = client.post("/auth/login", json={"identifier": "+91 98765 43202", "password": "password123"})
+    assert mobile_login.status_code == 200
 
 
 def test_login_wrong_password(client):
     # Register a user first
-    user_in = UserCreate(email="wrongpass@example.com", password="correctpass", full_name="WrongPass User")
+    user_in = UserCreate(email="wrongpass@example.com", mobile_number="+919876543203", password="correctpass", full_name="WrongPass User")
     client.post("/auth/register", json=user_in.model_dump())
 
     # Try login with wrong password
@@ -71,7 +102,7 @@ def test_login_wrong_password(client):
 
 def test_me_with_valid_token(client):
     # Register a user
-    user_in = UserCreate(email="me@example.com", password="mypass", full_name="Me User")
+    user_in = UserCreate(email="me@example.com", mobile_number="+919876543204", password="mypass", full_name="Me User")
     client.post("/auth/register", json=user_in.model_dump())
 
     # Login to get token
@@ -97,8 +128,8 @@ def test_me_without_token(client):
 def test_user_data_isolation(client):
     """Test that users can only access their own data."""
     # Register two users
-    user1_in = UserCreate(email="user1@example.com", password="password123", full_name="User One")
-    user2_in = UserCreate(email="user2@example.com", password="password123", full_name="User Two")
+    user1_in = UserCreate(email="user1@example.com", mobile_number="+919876543205", password="password123", full_name="User One")
+    user2_in = UserCreate(email="user2@example.com", mobile_number="+919876543206", password="password123", full_name="User Two")
     
     client.post("/auth/register", json=user1_in.model_dump())
     client.post("/auth/register", json=user2_in.model_dump())

@@ -1,66 +1,77 @@
 import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 
 const Login: React.FC = () => {
-  const [email, setEmail] = useState("");
+  const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const { login, user } = useAuth();
-  const navigate = useNavigate();
+  const [error, setError] = useState("");
+  const { login } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading) return;
     setLoading(true);
+    setError("");
     try {
-      await login(email, password);
-    } catch (error: any) {
-      alert(error.message);
-    } finally {
+      await login(identifier, password);
+    } catch (err: any) {
+      setError(err?.message || "Login failed");
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-gray-100 flex items-center justify-center p-8">
-      <div className="bg-white p-8 rounded-lg shadow-xl max-w-md w-full">
-        <h2 className="text-2xl font-bold mb-6 text-center">Sign In</h2>
-        <form onSubmit={handleSubmit} className="space-y-4">
+    <div className="auth-page">
+      <div className="auth-glow auth-glow-one" /><div className="auth-glow auth-glow-two" />
+      <div className="auth-card">
+        <div className="auth-brand"><span>✦</span><div><strong>AI Workspace</strong><small>Secure creative workspace</small></div></div>
+        <div className="auth-heading"><p className="eyebrow">Welcome back</p><h2>Sign in to your workspace</h2><p>Continue your conversations, images and video projects.</p></div>
+        <form onSubmit={handleSubmit} className="auth-form" noValidate>
           <div>
-            <label className="block text-gray-700 text-sm font-bold mb-2">
-              Email
+            <label className="auth-label" htmlFor="login-identifier">
+              Email or mobile number
             </label>
             <input
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              type="email"
-              name="email"
+              id="login-identifier"
+              value={identifier}
+              onChange={(e) => { setIdentifier(e.target.value); if (error) setError(""); }}
+              type="text"
+              name="identifier"
+              autoComplete="username"
+              placeholder="you@example.com or +91 98765 43210"
               required
-              className="shadow appearance-none border-2 border-gray-200 rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              disabled={loading}
+              className="auth-input"
             />
           </div>
           <div>
-            <label className="block text-gray-700 text-sm font-bold mb-2">
+            <label className="auth-label" htmlFor="login-password">
               Password
             </label>
             <input
+              id="login-password"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(e) => { setPassword(e.target.value); if (error) setError(""); }}
               type="password"
               name="password"
+              autoComplete="current-password"
               required
-              className="shadow appearance-none border-2 border-gray-200 rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              disabled={loading}
+              className="auth-input"
             />
           </div>
+          {error && <p className="auth-error" role="alert">{error}</p>}
           <button
             type="submit"
-            disabled={loading}
-            className="w-full py-2 bg-blue-600 text-white font-bold rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50">
+            disabled={loading || !identifier.trim() || !password}
+            className="auth-submit">
             {loading ? "Signing in..." : "Sign In"}
           </button>
         </form>
-        <p className="mt-4 text-center text-sm text-gray-600">
-          Don't have an account? <a href="/register" className="font-medium text-blue-600 hover:text-blue-800">Register</a>
+        <p className="auth-switch">
+          Don't have an account? <Link to="/register">Create one</Link>
         </p>
       </div>
     </div>

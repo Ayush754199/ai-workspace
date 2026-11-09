@@ -12,7 +12,12 @@ export type ChatRoom = {
   members: number[];
   member_details: RoomMember[];
   last_message_at: string | null;
+  created_by: number;
+  is_pinned: boolean;
+  is_archived: boolean;
 };
+
+export type RoomMutation = { name?: string; is_pinned?: boolean; is_archived?: boolean };
 
 export type ChatMessage = {
   id: number;
@@ -24,7 +29,7 @@ export type ChatMessage = {
   created_at: string | null;
 };
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+import { apiBaseUrl } from "./client";
 
 async function request<T>(token: string, path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${apiBaseUrl}${path}`, {
@@ -35,7 +40,7 @@ async function request<T>(token: string, path: string, options?: RequestInit): P
       ...(options?.headers || {}),
     },
   });
-  const data = await response.json();
+  const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     const error = new Error(data.detail || "Chat request failed") as Error & { status?: number };
     error.status = response.status;
@@ -52,4 +57,10 @@ export const chatApi = {
     request<ChatMessage>(token, `/api/v1/rooms/${roomId}/messages`, { method: "POST", body: JSON.stringify({ content }) }),
   inviteMember: (token: string, roomId: number, identifier: string) =>
     request<{ message: string; user_id: number }>(token, `/api/v1/rooms/${roomId}/members`, { method: "POST", body: JSON.stringify({ identifier }) }),
+  createRoom: (token: string, name: string) =>
+    request<ChatRoom>(token, "/api/v1/rooms", { method: "POST", body: JSON.stringify({ name, room_type: "chat" }) }),
+  updateRoom: (token: string, roomId: number, update: { name?: string; is_pinned?: boolean; is_archived?: boolean }) =>
+    request<ChatRoom>(token, `/api/v1/rooms/${roomId}`, { method: "PATCH", body: JSON.stringify(update) }),
+  deleteRoom: (token: string, roomId: number) =>
+    request<{ deleted: boolean }>(token, `/api/v1/rooms/${roomId}`, { method: "DELETE" }),
 };

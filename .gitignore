@@ -18,6 +18,7 @@ venv/
 *.db
 *.sqlite
 *.sqlite3
+backend/system.log*
 
 # Node
 node_modules/
@@ -31,3 +32,61 @@ dist/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Local runtime state and QA artifacts (not source)
+backend_app.db
+*.log
+backend_login_run.log
+qa_logs/
+qa_mongo/
+qa_browser/
+qa_edge_*/
+qa_pwa_dump.*
+qa_secret_value_scan_result.txt
+perf_run/
+_openapi.json
+_routes.txt
+_diag_*
+**/__pycache__/
+.pytest_cache/
+.mypy_cache/
+
+# Generated reports and screenshots produced by QA runs
+AI_Workspace_*.xlsx
+AI_Workspace_*.txt
+*_report*.txt
+qa_*.png
+.ui_*.png
+invalid_txt_image_validation.png
+live_admin_dashboard.png
+
+# Bundled MongoDB binaries (installed locally, not source)
+mongodb-win32-x86_64-windows-7.0.14/
+
+# Streamlit / Kilo local state
+.streamlit/
+.kilo/
+
+# User uploads / generated attachment bytes (runtime data, not source)
+storage/attachments/
+backend/storage/attachments/
+
+# Local throwaway QA harnesses and one-off helper scripts.
+# Scoped to the repository ROOT only (leading slash) and to a leading
+# underscore in the file NAME -- a bare ``_*.*`` also matches ``__init__.py``
+# at every depth and would silently drop Python packages from the repo.
+/_*.*
+/_e2e/
+/_perf_harness/
+qa_360_*.cjs
+qa_*_inspect.mjs
+qa_browser_*.cjs
+qa_browser_*.mjs
+qa_probe_page.mjs
+qa_pwa_*.cjs
+qa_pwa_*.mjs
+qa_pwa_*.ps1
+qa_pwa_*.html
+qa_pwa_*.py
+qa_*_measure.html
+qa_mobile_*.html

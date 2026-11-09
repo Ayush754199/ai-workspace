@@ -1,7 +1,11 @@
 """Authenticated multimodal OCR and session document memory."""
 
+import asyncio
 import io
+import base64
 import uuid
+import json
+import os
 from datetime import datetime, timezone
 from typing import Any
 
@@ -13,13 +17,41 @@ from pypdf import PdfReader
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
+from app.api.deps import require_legacy_ai_enabled
 from app.core.database import get_db
 from app.core.config import settings
+from app.services.ai_gateway.quota import QuotaService, QuotaError
 from app.db.session import mongo
 from app.models.user import User
 from app.services.document_generator import GENERATORS
+import requests
+
+try:
+    from backend.key_rotator import (
+        ProviderCredential,
+        call_gemini_model,
+        call_with_key_rotation,
+        gemini_model_chain,
+        get_provider_credentials,
+        is_retired_model_error,
+    )
+    from backend.logger import log_connection_failure
+except ModuleNotFoundError:
+    from key_rotator import (
+        ProviderCredential,
+        call_gemini_model,
+        call_with_key_rotation,
+        gemini_model_chain,
+        get_provider_credentials,
+        is_retired_model_error,
+    )
+    from logger import log_connection_failure
 
 router = APIRouter(prefix="/chat", tags=["chat"])
+# Legacy direct-provider chat paths (/multimodal, /stream, /image) are gated. The
+# document export and image endpoints keep working below; only provider calls are
+# disabled when LEGACY_DIRECT_AI_ENABLED is false.
+legacy_gate = [Depends(require_legacy_ai_enabled)]
 
 
 class ExportRequest(BaseModel):
@@ -43,38 +75,75 @@ def extract_pdf_text(data: bytes) -> str:
 
 
 async def call_gemini(prompt: str, attachments: list[tuple[bytes, str]] | None = None) -> str:
-    if settings.GEMINI_API_KEY == "default-test-key":
+    credentials = get_provider_credentials("Gemini")
+    if not credentials and settings.GEMINI_API_KEY != "default-test-key":
+        credentials = (ProviderCredential(settings.GEMINI_API_KEY, "GEMINI_API_KEY"),)
+    if not credentials:
         return "Gemini is not configured. Add GEMINI_API_KEY to enable document OCR."
 
     from google import genai
     from google.genai import types
 
-    client = genai.Client(api_key=settings.GEMINI_API_KEY)
     contents: list[Any] = [prompt]
     for data, mime_type in attachments or []:
         contents.append(types.Part.from_bytes(data=data, mime_type=mime_type))
-    response = client.models.generate_content(model="gemini-2.0-flash", contents=contents)
+
+    def generate(api_key: str, model: str) -> Any:
+        client = genai.Client(api_key=api_key)
+        try:
+            return client.models.generate_content(model=model, contents=contents)
+        finally:
+            close = getattr(client, "close", None)
+            if callable(close):
+                close()
+
+    response, _model = await asyncio.to_thread(
+        call_gemini_model,
+        generate,
+        endpoint="Gemini/chat",
+        payload={"prompt": prompt, "attachment_count": len(attachments or [])},
+        credentials=credentials,
+        text_of=lambda result: getattr(result, "text", None),
+    )
     return response.text or ""
 
 
 async def load_session_context(session_id: str, user_id: int) -> str:
     if not mongo.enabled:
         return ""
-    cursor = mongo.chat_history.find({"session_id": session_id, "user_id": user_id, "document_context": {"$exists": True}}).sort("created_at", 1)
-    contexts: list[str] = []
-    async for record in cursor:
-        context = record.get("document_context", "")
-        if context:
-            contexts.append(f"File: {record.get('file_name', 'document')}\n{context}")
-    return "\n\n--- Stored document ---\n\n".join(contexts)
+    await mongo.verify_ready()
+    try:
+        cursor = mongo.chat_history.find({"session_id": session_id, "user_id": user_id, "document_context": {"$exists": True}}).sort("created_at", 1)
+        contexts: list[str] = []
+        async for record in cursor:
+            context = record.get("document_context", "")
+            if context:
+                contexts.append(f"File: {record.get('file_name', 'document')}\n{context}")
+        return "\n\n--- Stored document ---\n\n".join(contexts)
+    except Exception as exc:
+        log_connection_failure(
+            exc,
+            endpoint="mongodb://Atlas",
+            payload={"collection": "chat_history", "operation": "find", "session_id": session_id, "user_id": user_id},
+        )
+        raise
 
 
 async def save_history(record: dict[str, Any]) -> None:
     if mongo.enabled:
-        await mongo.chat_history.insert_one(record)
+        await mongo.verify_ready()
+        try:
+            await mongo.chat_history.insert_one(record)
+        except Exception as exc:
+            log_connection_failure(
+                exc,
+                endpoint="mongodb://Atlas",
+                payload={"collection": "chat_history", "operation": "insert_one", **record},
+            )
+            raise
 
 
-@router.post("/multimodal")
+@router.post("/multimodal", dependencies=legacy_gate)
 async def multimodal_chat(
     prompt: str = Form(default=""),
     session_id: str = Form(default=""),
@@ -143,6 +212,191 @@ async def multimodal_chat(
     answer = await call_gemini(f"{VISION_INSTRUCTIONS}\n{context}\n\nUser question: {prompt}")
     await save_history({**base_record, "document_context": extracted_context or None, "response": answer})
     return {"session_id": session_id, "response": answer, "document_context_saved": bool(extracted_context)}
+
+
+@router.post("/image")
+async def image_studio(
+    prompt: str = Form(...),
+    image: UploadFile | None = File(default=None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Generate an image or use the explicitly configured image-edit Space.
+
+    The endpoint never claims edit support when no compatible Space is configured.
+    Provider credentials and endpoint errors remain server-side.
+    """
+    prompt = prompt.strip()
+    if not prompt:
+        raise HTTPException(status_code=400, detail="A prompt is required")
+    request_id = uuid.uuid4().hex
+    reservation = None
+    try:
+        reservation = QuotaService().reserve(
+            db, user_id=current_user.id, request_id=request_id,
+            provider="cloudflare" if settings.CLOUDFLARE_API_TOKEN else "huggingface",
+            model=settings.CLOUDFLARE_IMAGE_PRIMARY_MODEL if settings.CLOUDFLARE_API_TOKEN else settings.HF_IMAGE_API_URL,
+            capability="image", units=1,
+        )
+    except QuotaError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+
+    credentials = get_provider_credentials("Hugging Face")
+    image_endpoint = settings.HF_IMAGE_API_URL.strip()
+    cloudflare_ready = bool(settings.CLOUDFLARE_ACCOUNT_ID.strip() and settings.CLOUDFLARE_API_TOKEN.strip())
+    if not credentials and not cloudflare_ready:
+        QuotaService().release(db, reservation.reservation_id, failure=True)
+        raise HTTPException(status_code=503, detail="Hugging Face image generation is not configured. Set HF_TOKEN (or HF_TOKEN_1/HF_TOKENS) on the server.")
+    if not image_endpoint and not cloudflare_ready:
+        QuotaService().release(db, reservation.reservation_id, failure=True)
+        raise HTTPException(status_code=503, detail="Hugging Face image generation is not configured. Set HF_IMAGE_API_URL on the server.")
+    if image is not None:
+        edit_space = settings.HF_IMAGE_EDIT_SPACE.strip()
+        if not edit_space:
+            QuotaService().release(db, reservation.reservation_id, failure=True)
+            raise HTTPException(status_code=503, detail="Image editing is unavailable until an eligible editing Space is configured. Set HF_IMAGE_EDIT_SPACE on the server.")
+        data = await image.read()
+        if len(data) > MAX_FILE_SIZE:
+            QuotaService().release(db, reservation.reservation_id, failure=True)
+            raise HTTPException(status_code=413, detail="Image exceeds the 20 MB limit")
+        try:
+            Image.open(io.BytesIO(data)).verify()
+        except Exception as exc:
+            QuotaService().release(db, reservation.reservation_id, failure=True)
+            raise HTTPException(status_code=400, detail="Invalid image file") from exc
+        try:
+            from gradio_client import Client, handle_file
+            from tempfile import NamedTemporaryFile
+            with NamedTemporaryFile(delete=False, suffix=os.path.splitext(image.filename or ".png")[1]) as handle:
+                handle.write(data)
+                temp_path = handle.name
+            try:
+                def edit(token: str):
+                    client = Client(edit_space, token=token)
+                    try:
+                        inputs = json.loads(settings.HF_IMAGE_EDIT_INPUTS_JSON)
+                        values = [handle_file(temp_path) if item == "{image}" else prompt if item == "{prompt}" else item for item in inputs]
+                        if settings.HF_IMAGE_EDIT_API_NAME:
+                            return client.predict(*values, api_name=settings.HF_IMAGE_EDIT_API_NAME)
+                        return client.predict(*values)
+                    finally:
+                        close = getattr(client, "close", None)
+                        if callable(close):
+                            close()
+                result = call_with_key_rotation("Hugging Face", edit, endpoint=f"https://huggingface.co/spaces/{edit_space}", payload={"operation": "image_edit"}, credentials=credentials)
+            finally:
+                os.unlink(temp_path)
+            output = _gradio_result_bytes(result)
+        except HTTPException:
+            QuotaService().release(db, reservation.reservation_id, failure=True)
+            raise
+        except Exception as exc:
+            QuotaService().release(db, reservation.reservation_id, failure=True)
+            raise HTTPException(status_code=502, detail="Configured image editing Space failed") from exc
+    else:
+        def generate(token: str):
+            if cloudflare_ready:
+                endpoint = f"https://api.cloudflare.com/client/v4/accounts/{settings.CLOUDFLARE_ACCOUNT_ID}/ai/run/{settings.CLOUDFLARE_IMAGE_PRIMARY_MODEL}"
+                response = requests.post(endpoint, headers={"Authorization": f"Bearer {settings.CLOUDFLARE_API_TOKEN}"}, json={"prompt": prompt}, timeout=180)
+                response.raise_for_status()
+                payload = response.json()
+                encoded = ((payload.get("result") or {}).get("image"))
+                if not encoded:
+                    raise RuntimeError("Cloudflare returned no image data")
+                return base64.b64decode(encoded)
+            response = requests.post(image_endpoint, headers={"Authorization": f"Bearer {token}"}, json={"inputs": prompt}, timeout=180)
+            response.raise_for_status()
+            if "application/json" in response.headers.get("content-type", ""):
+                raise RuntimeError("Image provider returned a non-image response")
+            return response.content
+        try:
+            output = generate("") if cloudflare_ready else call_with_key_rotation("Hugging Face", generate, endpoint=image_endpoint, payload={"operation": "image_generation"}, credentials=credentials)
+            QuotaService().commit(db, reservation.reservation_id, detail={"operation": "image_generation", "provider": "cloudflare" if cloudflare_ready else "huggingface"})
+        except Exception as exc:
+            QuotaService().release(db, reservation.reservation_id, failure=True)
+            raise HTTPException(status_code=502, detail="Configured image generation provider failed") from exc
+    if image is not None:
+        QuotaService().commit(db, reservation.reservation_id, detail={"operation": "image_editing", "provider": "huggingface"})
+    if not output:
+        QuotaService().release(db, reservation.reservation_id, failure=True)
+        raise HTTPException(status_code=502, detail="Image provider returned an empty result")
+    return StreamingResponse(io.BytesIO(output), media_type="image/png")
+
+
+def _gradio_result_bytes(result: Any) -> bytes:
+    if isinstance(result, (list, tuple)):
+        for item in result:
+            try:
+                return _gradio_result_bytes(item)
+            except (TypeError, ValueError):
+                continue
+        raise ValueError("No image result returned")
+    if isinstance(result, dict):
+        for key in ("image", "path", "url", "data"):
+            if key in result:
+                return _gradio_result_bytes(result[key])
+        raise ValueError("Unrecognized image result")
+    if isinstance(result, (bytes, bytearray)):
+        return bytes(result)
+    path = getattr(result, "path", None) or getattr(result, "url", None) or result
+    if isinstance(path, str) and path.startswith(("http://", "https://")):
+        response = requests.get(path, timeout=60)
+        response.raise_for_status()
+        return response.content
+    if isinstance(path, str) and os.path.isfile(path):
+        with open(path, "rb") as handle:
+            return handle.read()
+    raise ValueError("Image provider returned an unsupported result")
+
+
+import json
+
+
+class ChatStreamRequest(BaseModel):
+    prompt: str
+    session_id: str = ""
+
+
+@router.post("/stream", dependencies=legacy_gate)
+def stream_chat(request: ChatStreamRequest, current_user: User = Depends(get_current_user)):
+    credentials = get_provider_credentials("Gemini")
+    if not credentials and settings.GEMINI_API_KEY != "default-test-key":
+        credentials = (ProviderCredential(settings.GEMINI_API_KEY, "GEMINI_API_KEY"),)
+    if not credentials:
+        raise HTTPException(status_code=503, detail="Gemini is not configured.")
+
+    def event_stream():
+        from google import genai
+
+        error: Exception | None = None
+        for model in gemini_model_chain():
+            client = genai.Client(api_key=credentials[0].value)
+            streamed = False
+            try:
+                for chunk in client.models.generate_content_stream(
+                    model=model,
+                    contents=request.prompt,
+                ):
+                    streamed = True
+                    text = getattr(chunk, "text", None)
+                    if text:
+                        yield f"data: {json.dumps({'chunk': text})}\n\n"
+                error = None
+                break
+            except Exception as exc:
+                error = exc
+                # Only a retired model is worth retrying; anything else is reported.
+                if streamed or not is_retired_model_error(exc):
+                    break
+            finally:
+                close = getattr(client, "close", None)
+                if callable(close):
+                    close()
+        if error is not None:
+            yield f"data: {json.dumps({'error': str(error)})}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 @router.post("/export")

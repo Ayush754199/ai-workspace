@@ -43,10 +43,34 @@ def generate_pdf(content: str, data: list[dict[str, Any]]) -> BytesIO:
 
 
 def generate_csv(content: str, data: list[dict[str, Any]]) -> BytesIO:
+    """Write CSV rows.
+
+    ``content`` is inline text, not a column: when there are no rows it becomes one
+    row per line rather than a single cell holding the whole blob.
+    """
     import pandas as pd
 
+    if data:
+        rows = data
+    else:
+        lines = [line for line in (content or "").splitlines() if line.strip()]
+        if not lines:
+            rows = []
+        elif all("," in line for line in lines):
+            # Already comma-delimited text (e.g. pasted CSV): keep the cells intact.
+            import csv
+            from io import StringIO
+
+            rows = list(csv.reader(StringIO("\n".join(lines))))
+        else:
+            rows = [[line] for line in lines]
+
+    pad = max((len(row) for row in rows), default=0)
+    if pad > 1 and isinstance(rows[0], (list, tuple)):
+        rows = [list(row) + [""] * (pad - len(row)) for row in rows]
+
     output = BytesIO()
-    pd.DataFrame(_rows(content, data)).to_csv(output, index=False, encoding="utf-8-sig")
+    pd.DataFrame(rows).to_csv(output, index=False, header=False, encoding="utf-8-sig")
     output.seek(0)
     return output
 

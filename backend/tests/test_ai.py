@@ -10,12 +10,15 @@ import types
 
 @pytest.fixture(scope="module", autouse=True)
 def setup_db():
-    """Set up database for AI tests."""
+    """Set up database for AI tests.
+
+    ``engine`` is the shared application database. Only create what is missing --
+    dropping it here would delete the schema other test modules still need.
+    """
     from app.core.database import Base, engine
 
     Base.metadata.create_all(bind=engine)
     yield
-    Base.metadata.drop_all(bind=engine)
 
 
 @pytest.fixture

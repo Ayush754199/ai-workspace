@@ -1,0 +1,38 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    image: ai-workspace-api:latest
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    environment:
+      # SQLite on a mounted volume; switch to postgres:// URL for a managed DB.
+      DATABASE_URL: sqlite:////data/app.db
+      AI_GATEWAY_MODE: live
+    ports:
+      - "8000:8000"
+    volumes:
+      - api-data:/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  web:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        # Baked into the bundle at build time.
+        VITE_API_BASE_URL: ${PUBLIC_API_URL:-http://localhost:8000}
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "8080:80"
+
+volumes:
+  api-data:

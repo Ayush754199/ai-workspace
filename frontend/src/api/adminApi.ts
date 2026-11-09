@@ -1,4 +1,5 @@
 import type { ChatMessage, RoomMember } from "./chatApi";
+import { apiBaseUrl } from "./client";
 
 export type AdminChatRoom = {
   id: number;
@@ -13,11 +14,9 @@ export type AdminTranscript = AdminChatRoom & {
   member_count: number;
 };
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
-
 async function request<T>(token: string, path: string): Promise<T> {
   const response = await fetch(`${apiBaseUrl}${path}`, { headers: { Authorization: `Bearer ${token}` } });
-  const data = await response.json();
+  const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.detail || "Admin request failed");
   return data as T;
 }

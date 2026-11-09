@@ -1,11 +1,12 @@
+import React from 'react'
 import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import App from '../App'
 
 describe('App component', () => {
-  it('renders learn React link', () => {
+  it('redirects unauthenticated users to sign in', async () => {
     render(<App />)
-    const header = screen.getByRole('heading', { name: /welcome to ai workspace frontend/i })
-    expect(header).toBeInTheDocument()
+    const header = await screen.findByRole('heading', { name: /sign in/i })
+    expect(header).toBeTruthy()
   })
 })

@@ -3,8 +3,16 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-d
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import Dashboard from "./pages/Dashboard";
+import ChatWorkspace from "./pages/ChatWorkspace";
+import Documents from "./pages/Documents";
+import ImageWorkspace from "./pages/ImageWorkspace";
+import Office from "./pages/Office";
+import Research from "./pages/Research";
 import { AuthProvider } from "./contexts/AuthContext";
 import AdminDashboard from "./pages/AdminDashboard";
+import Profile from "./pages/Profile";
+import VideoStudio from "./pages/VideoStudio";
+import AiVideoStudio from "./pages/AiVideoStudio";
 import { useAuth } from "./contexts/AuthContext";
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -25,10 +33,18 @@ const App: React.FC = () => {
     <Router>
       <AuthProvider>
         <Routes>
-          <Route path="/" element={<h1>Welcome to AI Workspace</h1>} />
+          <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+          <Route path="/assistant" element={<ProtectedRoute><ChatWorkspace /></ProtectedRoute>} />
+          <Route path="/documents" element={<ProtectedRoute><Documents /></ProtectedRoute>} />
+          <Route path="/images" element={<ProtectedRoute><ImageWorkspace /></ProtectedRoute>} />
+          <Route path="/office" element={<ProtectedRoute><Office /></ProtectedRoute>} />
+          <Route path="/research" element={<ProtectedRoute><Research /></ProtectedRoute>} />
+          <Route path="/video-studio" element={<ProtectedRoute><AiVideoStudio /></ProtectedRoute>} />
+          <Route path="/video-studio/editor" element={<ProtectedRoute><VideoStudio /></ProtectedRoute>} />
+          <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
           <Route path="/admin" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
         </Routes>
       </AuthProvider>

@@ -1,7 +1,7 @@
 """Membership-protected multi-user room APIs."""
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, require_room_member
@@ -17,6 +17,14 @@ class CreateRoomRequest(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     room_type: str = "group"
 
+    @field_validator("name")
+    @classmethod
+    def name_not_blank(cls, value: str) -> str:
+        """Whitespace is not a room name."""
+        if not value.strip():
+            raise ValueError("Room name cannot be empty")
+        return value
+
 
 class MessageRequest(BaseModel):
     content: str = Field(min_length=1, max_length=20000)
@@ -24,6 +32,12 @@ class MessageRequest(BaseModel):
 
 class InviteRequest(BaseModel):
     identifier: str = Field(min_length=1, max_length=255)
+
+
+class RoomUpdateRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    is_pinned: bool | None = None
+    is_archived: bool | None = None
 
 
 def serialize_message(message: Message) -> dict:
@@ -49,6 +63,9 @@ def serialize_room(room: Room, db: Session) -> dict:
         "members": [user.id for user in members],
         "member_details": [{"id": user.id, "name": user.full_name, "email": user.email, "role": user.role} for user in members],
         "last_message_at": last_message.created_at.isoformat() if last_message and last_message.created_at else None,
+        "created_by": room.created_by,
+        "is_pinned": room.is_pinned,
+        "is_archived": room.is_archived,
     }
 
 
@@ -64,7 +81,41 @@ def create_room(request: CreateRoomRequest, current_user: User = Depends(get_cur
 @router.get("")
 def list_rooms(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     rooms = db.query(Room).filter(Room.is_active.is_(True)).all()
-    return [serialize_room(room, db) for room in rooms if current_user.id in (room.members or [])]
+    visible = [room for room in rooms if current_user.id in (room.members or [])]
+    visible.sort(key=lambda room: (not room.is_pinned, room.is_archived, -(room.id or 0)))
+    return [serialize_room(room, db) for room in visible]
+
+
+def _owned_room(room_id: int, current_user: User, db: Session) -> Room:
+    room = db.query(Room).filter(Room.id == room_id, Room.is_active.is_(True)).first()
+    if room is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    if room.created_by != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the conversation owner can manage it")
+    return room
+
+
+@router.patch("/{room_id}")
+def update_room(
+    room_id: int,
+    request: RoomUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    room = _owned_room(room_id, current_user, db)
+    for field, value in request.model_dump(exclude_unset=True).items():
+        setattr(room, field, value.strip() if field == "name" and isinstance(value, str) else value)
+    db.commit()
+    db.refresh(room)
+    return serialize_room(room, db)
+
+
+@router.delete("/{room_id}")
+def delete_room(room_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    room = _owned_room(room_id, current_user, db)
+    room.is_active = False
+    db.commit()
+    return {"deleted": True, "room_id": room_id}
 
 
 @router.get("/{room_id}/messages")
@@ -88,8 +139,11 @@ def create_message(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    content = request.content.strip()
+    if not content:
+        raise HTTPException(status_code=422, detail="Message cannot be empty")
     mentioned_users = db.query(User).all()
-    lowered_content = request.content.lower()
+    lowered_content = content.lower()
     mention_ids = [
         user.id for user in mentioned_users
         if f"@{(user.full_name or '').lower().replace(' ', '_')}" in lowered_content
@@ -100,7 +154,7 @@ def create_message(
         sender_id=current_user.id,
         sender_name=current_user.full_name or current_user.email,
         sender_role=current_user.role or "user",
-        content=request.content,
+        content=content,
         mention_user_ids=mention_ids,
     )
     db.add(message)

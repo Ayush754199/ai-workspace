@@ -1,9 +1,11 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
+import { apiBaseUrl, requestJson } from "../api/client";
 
 interface User {
-  id: number;
+  id: number | string;
   email: string;
+  mobile_number: string | null;
   full_name: string | null;
   role: string;
   is_active: boolean;
@@ -14,8 +16,8 @@ interface AuthContextType {
   user: User | null;
   isLoading: boolean;
   token: string | null;
-  login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, full_name: string) => Promise<void>;
+  login: (identifier: string, password: string) => Promise<void>;
+  register: (email: string, mobile_number: string, password: string, full_name: string) => Promise<void>;
   logout: () => void;
 }
 
@@ -35,75 +37,73 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [isLoading, setIsLoading] = useState(true);
   const navigate = useNavigate();
 
-  const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
-
-  const loadUser = async (accessToken: string) => {
-    const response = await fetch(`${apiBaseUrl}/auth/me`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    if (!response.ok) throw new Error("Session expired");
-    return response.json() as Promise<User>;
-  };
+  const loadUser = async (accessToken: string) =>
+    requestJson<User>(
+      `${apiBaseUrl}/auth/me`,
+      { headers: { Authorization: `Bearer ${accessToken}` } },
+      "Session expired",
+    );
 
   useEffect(() => {
     const storedToken = localStorage.getItem("auth_token");
     setToken(storedToken);
 
-    if (storedToken) {
-      loadUser(storedToken).then(setUser).catch(() => {
-        localStorage.removeItem("auth_token");
-        setToken(null);
-        setUser(null);
-      });
-    }
-    setIsLoading(false);
+    let cancelled = false;
+    const restoreSession = async () => {
+      if (storedToken) {
+        try {
+          const currentUser = await loadUser(storedToken);
+          if (!cancelled) setUser(currentUser);
+        } catch {
+          if (!cancelled) {
+            localStorage.removeItem("auth_token");
+            setToken(null);
+            setUser(null);
+          }
+        }
+      }
+      if (!cancelled) setIsLoading(false);
+    };
+
+    void restoreSession();
+    return () => {
+      cancelled = true;
+    };
   }, [navigate]);
 
-  const login = async (email: string, password: string) => {
-    try {
-      const response = await fetch(`${apiBaseUrl}/auth/login`, {
+  const login = async (identifier: string, password: string) => {
+    const data = await requestJson<{ access_token: string }>(
+      `${apiBaseUrl}/auth/login`,
+      {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ email, password }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.detail || "Login failed");
-      }
-
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ identifier: identifier.trim(), password }),
+      },
+      "Login failed",
+    );
+    try {
+      const currentUser = await loadUser(data.access_token);
       setToken(data.access_token);
       localStorage.setItem("auth_token", data.access_token);
-      setUser(await loadUser(data.access_token));
+      setUser(currentUser);
       navigate("/dashboard");
     } catch (error: any) {
-      throw new Error(error.message || "Login failed");
+      localStorage.removeItem("auth_token");
+      throw new Error(error?.message || "Could not load your profile after signing in");
     }
   };
 
-  const register = async (email: string, password: string, full_name: string) => {
-    try {
-      const response = await fetch(`${apiBaseUrl}/auth/register`, {
+  const register = async (email: string, mobile_number: string, password: string, full_name: string) => {
+    await requestJson(
+      `${apiBaseUrl}/auth/register`,
+      {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ email, password, full_name }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.detail || "Registration failed");
-      }
-
-      navigate("/login");
-    } catch (error: any) {
-      throw new Error(error.message || "Registration failed");
-    }
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim(), mobile_number: mobile_number.trim(), password, full_name: full_name.trim() }),
+      },
+      "Registration failed",
+    );
+    navigate("/login");
   };
 
   const logout = () => {
@@ -124,4 +124,4 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   );
 };
 
-export { AuthContext, AuthProvider };
+export { AuthContext };

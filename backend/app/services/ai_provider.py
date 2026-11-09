@@ -50,30 +50,19 @@ class GeminiProvider(BaseAIProvider):
 
 
 class OpenAIProvider(BaseAIProvider):
-    """OpenAI API provider."""
+    """Compatibility shell for the retired paid OpenAI integration.
+
+    The old implementation used the removed ``openai.ChatCompletion`` API and
+    could accidentally introduce a paid dependency.  Keep construction compatible
+    for legacy callers, but fail closed instead of making a network request.
+    """
 
     def __init__(self, api_key: str, model: str = "gpt-4"):
         self.api_key = api_key
         self.model = model
 
     def generate_response(self, prompt: str, system_prompt: str = None) -> str:
-        """Generate response using OpenAI API."""
-        import openai
-
-        openai.api_key = self.api_key
-
-        messages = []
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-        messages.append({"role": "user", "content": prompt})
-
-        response = openai.ChatCompletion.create(
-            model=self.model,
-            messages=messages,
-            api_key=self.api_key,
-        )
-
-        return response.choices[0].message.content or ""
+        raise RuntimeError("The paid OpenAI provider is disabled and not configured")
 
 
 class OllamaProvider(BaseAIProvider):
@@ -105,3 +94,13 @@ class OllamaProvider(BaseAIProvider):
 
         result = response.json()
         return result.get("message", {}).get("content", "")
+
+
+class MockProvider(BaseAIProvider):
+    """Deterministic provider used by the gateway's development mode."""
+
+    def __init__(self, model: str = "mock-chat"):
+        self.model = model
+
+    def generate_response(self, prompt: str, system_prompt: str = None) -> str:
+        return f"[mock:{self.model}] {prompt.strip()}"

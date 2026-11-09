@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import ChatAuditTab from "../components/ChatAuditTab";
+import AdminConsole from "../components/AdminConsole";
+import { apiBaseUrl } from "../api/client";
 
 type AdminUser = {
   id: number;
@@ -21,11 +23,10 @@ type Analytics = {
 
 const AdminDashboard: React.FC = () => {
   const { token, logout } = useAuth();
-  const [tab, setTab] = useState<"analytics" | "users" | "audit">("analytics");
+  const [tab, setTab] = useState<"analytics" | "users" | "providers" | "quotas" | "usage" | "logs" | "features" | "audit">("analytics");
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [error, setError] = useState("");
-  const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
   const request = async (path: string, options?: RequestInit) => {
     const response = await fetch(`${apiBaseUrl}/api/v1/admin${path}`, {
@@ -58,7 +59,7 @@ const AdminDashboard: React.FC = () => {
     }
   };
 
-  return <main className="admin-page"><header className="admin-header"><div><p className="eyebrow">AI Workspace / Control Room</p><h1>Admin Dashboard</h1></div><button onClick={logout}>Logout</button></header><nav className="admin-tabs" aria-label="Admin sections"><button className={tab === "analytics" ? "active" : ""} onClick={() => setTab("analytics")}>Analytics Overview</button><button className={tab === "users" ? "active" : ""} onClick={() => setTab("users")}>User Management</button><button className={tab === "audit" ? "active" : ""} onClick={() => setTab("audit")}>Chat Surveillance / Audit Logs</button></nav>{error && <p className="admin-error">{error}</p>}{tab === "analytics" && analytics && <section className="admin-cards">{[["Total users", analytics.total_users], ["Active users", analytics.active_users], ["Active chats", analytics.active_chats], ["Documents analyzed", analytics.documents_analyzed], ["Excel exports", analytics.excel_exports_generated]].map(([label, value]) => <article key={label}><span>{label}</span><strong>{value}</strong></article>)}</section>}{tab === "users" && <section className="admin-table-wrap"><table><thead><tr><th>User</th><th>Role</th><th>Admin</th><th>Status</th></tr></thead><tbody>{users.map((user) => <tr key={user.id}><td><strong>{user.full_name || "Unnamed user"}</strong><small>{user.email}</small></td><td><select value={user.role} onChange={(event) => updateUser(user, "role", event.target.value)}><option value="user">User</option><option value="doctor">Doctor</option><option value="ca">CA</option><option value="engineer">Engineer</option></select></td><td>{user.is_admin ? "Yes" : "No"}</td><td><button className={user.is_active ? "status-on" : "status-off"} onClick={() => updateUser(user, "is_active", !user.is_active)}>{user.is_active ? "Enabled" : "Disabled"}</button></td></tr>)}</tbody></table></section>}{tab === "audit" && token && <ChatAuditTab token={token} />}</main>;
+  return <main className="admin-page"><header className="admin-header"><div><p className="eyebrow">AI Workspace / Control Room</p><h1>Admin Dashboard</h1></div><button onClick={logout}>Logout</button></header><nav className="admin-tabs" aria-label="Admin sections"><button className={tab === "analytics" ? "active" : ""} onClick={() => setTab("analytics")}>Analytics Overview</button><button className={tab === "users" ? "active" : ""} onClick={() => setTab("users")}>User Management</button><button className={tab === "providers" ? "active" : ""} onClick={() => setTab("providers")}>Providers &amp; Models</button><button className={tab === "quotas" ? "active" : ""} onClick={() => setTab("quotas")}>Quotas</button><button className={tab === "usage" ? "active" : ""} onClick={() => setTab("usage")}>Usage</button><button className={tab === "logs" ? "active" : ""} onClick={() => setTab("logs")}>Logs</button><button className={tab === "features" ? "active" : ""} onClick={() => setTab("features")}>Features</button><button className={tab === "audit" ? "active" : ""} onClick={() => setTab("audit")}>Chat Surveillance / Audit Logs</button></nav>{error && <p className="admin-error">{error}</p>}{tab === "analytics" && analytics && <section className="admin-cards">{[["Total users", analytics.total_users], ["Active users", analytics.active_users], ["Active chats", analytics.active_chats], ["Documents analyzed", analytics.documents_analyzed], ["Excel exports", analytics.excel_exports_generated]].map(([label, value]) => <article key={label}><span>{label}</span><strong>{value}</strong></article>)}</section>}{tab === "users" && <section className="admin-table-wrap"><table><thead><tr><th>User</th><th>Role</th><th>Admin</th><th>Status</th></tr></thead><tbody>{users.map((user) => <tr key={user.id}><td><strong>{user.full_name || "Unnamed user"}</strong><small>{user.email}</small></td><td><select value={user.role} onChange={(event) => updateUser(user, "role", event.target.value)}><option value="user">User</option><option value="doctor">Doctor</option><option value="ca">CA</option><option value="engineer">Engineer</option></select></td><td>{user.is_admin ? "Yes" : "No"}</td><td><button className={user.is_active ? "status-on" : "status-off"} onClick={() => updateUser(user, "is_active", !user.is_active)}>{user.is_active ? "Enabled" : "Disabled"}</button></td></tr>)}</tbody></table></section>}{tab === "audit" && token && <ChatAuditTab token={token} />}{["providers", "quotas", "usage", "logs", "features"].includes(tab) && <AdminConsole tab={tab as "providers"} />}</main>;
 };
 
 export default AdminDashboard;

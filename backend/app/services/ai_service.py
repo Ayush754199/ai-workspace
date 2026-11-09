@@ -1,6 +1,6 @@
 """AI Service - Dynamic provider selection and management."""
 
-from app.services.ai_provider import BaseAIProvider, GeminiProvider, OpenAIProvider, OllamaProvider
+from app.services.ai_provider import BaseAIProvider, GeminiProvider, OpenAIProvider, OllamaProvider, MockProvider
 
 
 class AIService:
@@ -10,6 +10,7 @@ class AIService:
         "gemini": GeminiProvider,
         "openai": OpenAIProvider,
         "ollama": OllamaProvider,
+        "mock": MockProvider,
     }
 
     def __init__(self, config: dict | None = None):

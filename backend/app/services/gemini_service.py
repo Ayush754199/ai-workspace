@@ -1,7 +1,23 @@
 """Gemini service with dual-mode processing: web search grounding + PDF/Vision analysis."""
+import asyncio
 import os
 from typing import Optional, Dict, Any, List
 from dotenv import load_dotenv
+
+try:
+    from backend.key_rotator import (
+        ProviderCredential,
+        call_gemini_model,
+        call_with_key_rotation,
+        get_provider_credentials,
+    )
+except ModuleNotFoundError:
+    from key_rotator import (
+        ProviderCredential,
+        call_gemini_model,
+        call_with_key_rotation,
+        get_provider_credentials,
+    )
 
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".env"))
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "default-test-key")
@@ -76,6 +92,7 @@ class PDFParser:
 class GeminiProvider:
     """Gemini AI provider with dual-mode processing capabilities."""
     def __init__(self, api_key: str = None):
+        self._explicit_api_key = api_key is not None
         self.api_key = api_key or GEMINI_API_KEY
         self.search_grounding = GoogleSearchGrounding()
         self.pdf_parser = PDFParser()
@@ -144,13 +161,113 @@ when discussing sensitive topics."""
     ) -> Dict[str, Any]:
         """Generate a direct chat response for text and voice-originated prompts."""
         system_prompt = self.get_system_prompt(profession)
-        if self.api_key == "default-test-key":
+        if self._explicit_api_key:
+            credentials = (ProviderCredential(self.api_key, "explicit Gemini key"),)
+        else:
+            credentials = get_provider_credentials("Gemini")
+            if not credentials and self.api_key != "default-test-key":
+                credentials = (ProviderCredential(self.api_key, "GEMINI_API_KEY"),)
+        if not credentials:
             return {"response": "AI provider is not configured. Add GEMINI_API_KEY to enable live answers.", "profession": profession}
 
         from google import genai
 
-        client = genai.Client(api_key=self.api_key)
-        response = client.models.generate_content(
-            model="gemini-2.0-flash", contents=f"{system_prompt}\n\nUser: {prompt}"
+        contents = f"{system_prompt}\n\nUser: {prompt}"
+
+        def generate(key: str, model: str) -> Any:
+            client = genai.Client(api_key=key)
+            try:
+                return client.models.generate_content(model=model, contents=contents)
+            finally:
+                close = getattr(client, "close", None)
+                if callable(close):
+                    close()
+
+        response, model = call_gemini_model(
+            generate,
+            endpoint="Gemini/generate_content",
+            payload={"prompt": prompt},
+            credentials=credentials,
+            text_of=lambda result: getattr(result, "text", None),
         )
-        return {"response": response.text or "", "profession": "gemini"}
+        return {"response": response.text or "", "profession": "gemini", "provider": "gemini", "model": model}
+    async def process_file_analysis(
+        self, file_path: str, prompt: str, profession: str = "default"
+    ) -> Dict[str, Any]:
+        """Extract text from a PDF (or describe an image) and answer the prompt against it."""
+        system_prompt = self.get_system_prompt(profession)
+        suffix = os.path.splitext(file_path)[1].lower()
+        extracted_text = ""
+
+        if suffix == ".pdf":
+            extracted_text = self.pdf_parser.extract_text(file_path)
+            if not extracted_text.strip():
+                return {
+                    "mode": "pdf_unreadable",
+                    "system_prompt": system_prompt,
+                    "extracted_text": "",
+                    "response": "No selectable text could be extracted from this PDF. Connect Gemini Vision to transcribe scanned pages.",
+                }
+            contents = (
+                f"{system_prompt}\n\nDocument content:\n{extracted_text}\n\n"
+                f"User question: {prompt or 'Summarize this document.'}"
+            )
+        else:
+            mime_type = "image/png" if suffix == ".png" else "image/jpeg"
+            contents = (
+                f"{system_prompt}\n\nUser question: {prompt or 'Describe this image in detail.'}"
+            )
+
+        if self._explicit_api_key:
+            credentials = (ProviderCredential(self.api_key, "explicit Gemini key"),)
+        else:
+            credentials = get_provider_credentials("Gemini")
+            if not credentials and self.api_key != "default-test-key":
+                credentials = (ProviderCredential(self.api_key, "GEMINI_API_KEY"),)
+        if not credentials:
+            return {
+                "mode": "not_configured",
+                "system_prompt": system_prompt,
+                "extracted_text": extracted_text,
+                "response": "AI provider is not configured. Add GEMINI_API_KEY to enable file analysis.",
+            }
+
+        from google import genai
+        from google.genai import types
+
+        parts: list[Any] = [contents]
+        if suffix != ".pdf":
+            with open(file_path, "rb") as handle:
+                parts.append(types.Part.from_bytes(data=handle.read(), mime_type=mime_type))
+
+        def generate(key: str, model: str) -> Any:
+            client = genai.Client(api_key=key)
+            try:
+                return client.models.generate_content(model=model, contents=parts)
+            finally:
+                close = getattr(client, "close", None)
+                if callable(close):
+                    close()
+
+        response, model = await asyncio.to_thread(
+            call_gemini_model,
+            generate,
+            endpoint="Gemini/analyze",
+            payload={"prompt": prompt, "file_type": suffix},
+            credentials=credentials,
+            text_of=lambda result: getattr(result, "text", None),
+        )
+
+        if suffix == ".pdf":
+            mode = "vision_fallback" if self.pdf_parser.needs_vision_fallback(extracted_text) else "text_parsed"
+        else:
+            mode = "vision"
+
+        return {
+            "mode": mode,
+            "system_prompt": system_prompt,
+            "extracted_text": extracted_text,
+            "response": getattr(response, "text", "") or "",
+            "provider": "gemini",
+            "model": model,
+        }
