@@ -2,11 +2,14 @@ from passlib.context import CryptContext
 from passlib.exc import UnknownHashError
 from jose import JWTError, jwt
 from datetime import datetime, timedelta, timezone
-from app.core.config import Settings
+from app.core.config import settings
 
 pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 
-settings = Settings()
+# Reuse the already-validated application settings instead of building a second
+# ``Settings()``. A separate instance validated the environment again and crashed
+# on a short JWT_SECRET with pydantic's raw "string_too_short" error -- even when
+# config.settings had already repaired the value -- so the deploy never started.
 JWT_SECRET = settings.JWT_SECRET
 ALGORITHM = settings.ALGORITHM
 ACCESS_TOKEN_EXPIRE_MINUTES = settings.ACCESS_TOKEN_EXPIRE_MINUTES
