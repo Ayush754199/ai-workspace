@@ -32,7 +32,13 @@ const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           <button className="shell-logout" onClick={logout}>Sign out</button>
         </div>
       </aside>
-      <main className="workspace-main">{children}</main>
+    <main className="workspace-main">
+      <div className="mobile-account-name" title={user?.full_name || user?.email || "Account"}>
+        <span className="account-avatar">{(user?.full_name || user?.email || "U").slice(0, 1).toUpperCase()}</span>
+        <span>{user?.full_name || user?.email || "Account"}</span>
+      </div>
+      {children}
+    </main>
     </div>
   );
 };

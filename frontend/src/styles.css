@@ -52,6 +52,8 @@ select { padding: 8px; border: 1px solid #c8d8d0; border-radius: 5px; }
    the compact phone sidebar can show icons without forcing a wider layout. */
 html, body, #root { min-width: 0; max-width: 100%; overflow-x: hidden; }
 .workspace-shell, .workspace-main, .chat-workspace, .page-frame, .video-studio-page { min-width: 0; max-width: 100%; }
+.workspace-main { position: relative; }
+.mobile-account-name { display: none; }
 .shell-nav-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 @media (max-width: 650px) {
@@ -63,6 +65,9 @@ html, body, #root { min-width: 0; max-width: 100%; overflow-x: hidden; }
   .shell-logout { display: none; }
   .shell-nav-item { width: 100%; min-width: 0; }
   .workspace-main { width: calc(100vw - 56px); max-width: calc(100vw - 56px); }
+  .mobile-account-name { position: absolute; z-index: 2; top: 10px; right: 12px; display: flex; align-items: center; gap: 6px; max-width: min(46vw, 170px); padding: 4px 8px 4px 4px; border: 1px solid #303a54; border-radius: 999px; color: #d8deed; background: #111827e8; font-size: 10px; }
+  .mobile-account-name .account-avatar { flex: 0 0 22px; width: 22px; height: 22px; font-size: 10px; }
+  .mobile-account-name > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .workspace-topbar, .studio-header, .new-conversation,
   .conversation-header, .conversation-actions, .chat-composer { min-width: 0; max-width: 100%; }
   .new-conversation input, .chat-composer textarea { min-width: 0; max-width: 100%; }
