@@ -116,6 +116,7 @@ def status(_: User = Depends(get_current_user)):
         },
         "tts": {
             "gemini": bool(_gemini_keys()),
+            "pollinations": bool(settings.POLLINATIONS_API_KEY.strip()),
             "edge_tts": bool(edge),
             "system_say": shutil.which("say") is not None,
         },
@@ -196,6 +197,9 @@ def speak(request: SpeakRequest, _: User = Depends(get_current_user)):
         engines.append(("edge", lambda: (_tts_edge(request.text, request.voice), "audio/mpeg", ".mp3")))
     if request.engine in {"auto", "say"} and shutil.which("say"):
         engines.append(("say", lambda: (_tts_say(request.text), "audio/aiff", ".aiff")))
+    if request.engine == "auto" and settings.POLLINATIONS_API_KEY.strip():
+        from backend.pollinations_media import speak as pollinations_speak
+        engines.append(("pollinations", lambda: (pollinations_speak(request.text, request.voice), "audio/mpeg", ".mp3")))
     if not engines:
         raise HTTPException(
             status_code=503,

@@ -352,11 +352,16 @@ async def image_studio(
         fal_ready = fal_configured()
     except Exception:
         fal_ready = False
+    try:
+        from backend.pollinations_media import configured as pollinations_configured
+        pollinations_ready = pollinations_configured()
+    except Exception:
+        pollinations_ready = False
     gemini_ready = bool(gemini_credentials)
-    if not credentials and not cloudflare_ready and not gemini_ready and not fal_ready:
+    if not credentials and not cloudflare_ready and not gemini_ready and not fal_ready and not pollinations_ready:
         QuotaService().release(db, reservation.reservation_id, failure=True)
         raise HTTPException(status_code=503, detail="Image generation is not configured. Set GEMINI_API_KEY (or GEMINI_KEY_1) on the server.")
-    if not image_endpoint and not cloudflare_ready and not gemini_ready and not fal_ready:
+    if not image_endpoint and not cloudflare_ready and not gemini_ready and not fal_ready and not pollinations_ready:
         QuotaService().release(db, reservation.reservation_id, failure=True)
         raise HTTPException(status_code=503, detail="Image generation is not configured. Set HF_IMAGE_API_URL or Gemini credentials on the server.")
     if image is not None:
@@ -367,8 +372,25 @@ async def image_studio(
                 QuotaService().commit(db, reservation.reservation_id, detail={"operation": "image_editing", "provider": "gemini"})
                 return StreamingResponse(io.BytesIO(output), media_type="image/png")
             except Exception as exc:
+                if pollinations_ready:
+                    try:
+                        from backend.pollinations_media import edit_image
+                        output = edit_image(prompt, uploaded_data or b"", image.filename or "image.png")
+                        QuotaService().commit(db, reservation.reservation_id, detail={"operation": "image_editing", "provider": "pollinations"})
+                        return StreamingResponse(io.BytesIO(output), media_type="image/png")
+                    except Exception:
+                        pass
                 QuotaService().release(db, reservation.reservation_id, failure=True)
-                raise HTTPException(status_code=502, detail="Gemini image editing failed") from exc
+                raise HTTPException(status_code=502, detail="Image editing failed for the configured providers") from exc
+        if not edit_space and pollinations_ready:
+            try:
+                from backend.pollinations_media import edit_image
+                output = edit_image(prompt, uploaded_data or b"", image.filename or "image.png")
+                QuotaService().commit(db, reservation.reservation_id, detail={"operation": "image_editing", "provider": "pollinations"})
+                return StreamingResponse(io.BytesIO(output), media_type="image/png")
+            except Exception as exc:
+                QuotaService().release(db, reservation.reservation_id, failure=True)
+                raise HTTPException(status_code=502, detail="Pollinations image editing failed") from exc
         if not edit_space:
             QuotaService().release(db, reservation.reservation_id, failure=True)
             raise HTTPException(status_code=503, detail="Image editing is unavailable until an eligible editing Space is configured. Set HF_IMAGE_EDIT_SPACE on the server.")
@@ -446,10 +468,19 @@ async def image_studio(
                                 output = generate_gemini_image(prompt, gemini_credentials)
                                 provider_name = "gemini-fallback"
                             except Exception:
-                                if not fal_ready:
+                                if pollinations_ready:
+                                    from backend.pollinations_media import generate_image
+                                    output = generate_image(prompt)
+                                    provider_name = "pollinations-fallback"
+                                elif fal_ready:
+                                    output = generate_fal_image(prompt)
+                                    provider_name = "fal-fallback"
+                                else:
                                     raise
-                                output = generate_fal_image(prompt)
-                                provider_name = "fal-fallback"
+                        elif pollinations_ready:
+                            from backend.pollinations_media import generate_image
+                            output = generate_image(prompt)
+                            provider_name = "pollinations"
                         elif fal_ready:
                             output = generate_fal_image(prompt)
                             provider_name = "fal-fallback"

@@ -121,6 +121,9 @@ class Settings(BaseSettings):
     LTX_API_BASE_URL: str = "https://api.ltx.video/v1"
     FAL_KEY: str = ""
     FAL_VIDEO_MODEL: str = "fal-ai/cogvideox-5b"
+    POLLINATIONS_API_KEY: str = ""
+    POLLINATIONS_IMAGE_MODEL: str = "black-forest-labs/flux.1-schnell"
+    POLLINATIONS_AUDIO_MODEL: str = "openai/tts-1"
 
     @field_validator("JWT_SECRET")
     @classmethod

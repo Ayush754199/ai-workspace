@@ -96,6 +96,8 @@ services:
         sync: false
       - key: FAL_KEY
         sync: false
+      - key: POLLINATIONS_API_KEY
+        sync: false
 
     # Uncomment to keep uploaded files across deploys (requires a paid plan or
     # a paid disk; free instances cannot mount a disk).
