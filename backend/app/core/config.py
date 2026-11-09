@@ -118,21 +118,39 @@ class Settings(BaseSettings):
         return value
 
 
-try:
-    settings = Settings()
-except Exception as exc:  # noqa: BLE001 - re-raised with deploy guidance
-    # The raw pydantic error ("String should have at least 32 characters") is the
-    # first thing a failed deploy prints and says nothing about where to fix it.
-    # Hosted platforms have no .env file, so the value has to be added to the
-    # service environment instead.
-    message = str(exc)
-    if "JWT_SECRET" in message:
-        raise RuntimeError(
-            "JWT_SECRET is missing or too short (minimum 32 characters).\n"
-            "Local:   set it in backend/.env (see backend/.env.example).\n"
-            "Render:  Dashboard -> your service -> Environment -> add JWT_SECRET.\n"
-            "         (changing render.yaml alone does NOT update an existing service)\n"
-            "Generate: python -c \"import secrets; print(secrets.token_urlsafe(48))\"\n"
-            f"Original error: {message}"
-        ) from exc
-    raise
+def _load_settings() -> "Settings":
+    """Build Settings, repairing an unusable JWT_SECRET instead of crashing.
+
+    JWT_SECRET has no safe default: a predictable signing key lets an attacker
+    forge bearer tokens. A short value is just as bad. But refusing to boot means
+    a hosted platform (Render, Fly, Railway) stays down until someone edits an
+    environment variable -- with no working deploy to debug on.
+
+    So: a *missing* secret is generated once per process and logged loudly with
+    the exact fix. A *too short* secret is never silently accepted -- it is
+    replaced by a random value and the operator is told to persist a real one,
+    otherwise every restart signs users out.
+    """
+    try:
+        return Settings()
+    except Exception as exc:  # noqa: BLE001 - only JWT_SECRET is repaired here
+        message = str(exc)
+        if "JWT_SECRET" not in message:
+            raise
+
+    import logging
+    import secrets as _secrets
+
+    logger = logging.getLogger("app.config")
+    logger.error(
+        "JWT_SECRET is missing or shorter than 32 characters; using an ephemeral "
+        "random secret for this process. Users will be signed out on every restart.\n"
+        "Fix: set JWT_SECRET in the service environment (Render: Dashboard -> your "
+        "service -> Environment), then redeploy.\n"
+        "Generate one with: python -c \"import secrets; print(secrets.token_urlsafe(48))\"\n"
+        "Changing render.yaml alone does NOT update an existing service."
+    )
+    return Settings(JWT_SECRET=_secrets.token_urlsafe(48))
+
+
+settings = _load_settings()
