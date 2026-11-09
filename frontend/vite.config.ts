@@ -1,9 +1,23 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
+import { copyFileSync, mkdirSync } from 'node:fs'
+import { resolve } from 'node:path'
+
+const spaRouteCopies = () => ({
+  name: 'spa-route-copies',
+  closeBundle() {
+    const dist = resolve(__dirname, 'dist')
+    for (const route of ['chat', 'video-studio/editor']) {
+      const target = resolve(dist, route, 'index.html')
+      mkdirSync(resolve(dist, route), { recursive: true })
+      copyFileSync(resolve(dist, 'index.html'), target)
+    }
+  },
+})
 
 export default defineConfig({
-  plugins: [react(), VitePWA({
+  plugins: [react(), spaRouteCopies(), VitePWA({
     registerType: 'autoUpdate',
     includeAssets: ['manifest.json'],
     manifest: {
