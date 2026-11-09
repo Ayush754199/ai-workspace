@@ -128,7 +128,7 @@ describe("Chat web-search toggle", () => {
     const calls = mockApi();
     renderChat();
     await waitFor(() => expect(screen.getByText("First chat")).toBeTruthy());
-    fireEvent.click(screen.getByLabelText(/Search the web for this answer/i));
+    expect((screen.getByLabelText(/Search the web for this answer/i) as HTMLInputElement).checked).toBe(true);
     fireEvent.change(screen.getByPlaceholderText(/Message the assistant/i), { target: { value: "latest Python release" } });
     fireEvent.click(screen.getByRole("button", { name: /Send/i }));
     await waitFor(() => expect(calls.some((call) => call.url.includes("/stream") && JSON.parse(String(call.body)).web_search === true)).toBe(true));

@@ -85,7 +85,8 @@ const ChatWorkspace: React.FC = () => {
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [showArchived, setShowArchived] = useState(false);
-  const [webSearch, setWebSearch] = useState(false);
+  // Web search is enabled by default so current answers can use fresh sources.
+  const [webSearch, setWebSearch] = useState(true);
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
