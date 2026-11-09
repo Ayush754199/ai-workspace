@@ -40,7 +40,9 @@ class Settings(BaseSettings):
     # promotes the matching SQL authorization row and the variable can then be
     # removed safely.
     ADMIN_BOOTSTRAP_IDENTIFIER: str = ""
-    AI_GATEWAY_MODE: str = "dev"
+    # Production must never silently answer with the development mock provider.
+    # Tests explicitly override this setting to ``dev`` when they need mocks.
+    AI_GATEWAY_MODE: str = "live"
     # Only these providers are ever considered by the gateway. Providers that bill
     # per token are *not* in this list; adding one requires an explicit code change.
     # Chat priority: OpenRouter free catalog -> Groq -> Gemini. Admin can
