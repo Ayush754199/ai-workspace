@@ -8,7 +8,7 @@ const spaRouteCopies = () => ({
   name: 'spa-route-copies',
   closeBundle() {
     const dist = resolve(__dirname, 'dist')
-    for (const route of ['chat', 'video-studio/editor']) {
+    for (const route of ['dashboard', 'assistant', 'documents', 'images', 'office', 'research', 'chat', 'video-studio', 'video-studio/editor', 'profile', 'admin']) {
       const target = resolve(dist, route, 'index.html')
       mkdirSync(resolve(dist, route), { recursive: true })
       copyFileSync(resolve(dist, 'index.html'), target)
