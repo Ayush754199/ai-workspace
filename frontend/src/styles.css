@@ -752,10 +752,27 @@ html, body, #root { min-width: 0; max-width: 100%; overflow-x: hidden; }
 }
 
 @media (max-width: 650px) {
+  .cw-shell { display: flex; flex-direction: column; height: 100dvh; min-height: 0; }
+  .cw-sidebar { display: block; flex: 0 0 auto; max-height: none; border-right: 0; border-bottom: 1px solid #24262f; }
+  .cw-sidebar-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 10px; }
+  .cw-brand > div { display: none; }
+  .cw-brand > span { width: 25px; height: 25px; font-size: 12px; }
+  .cw-new { padding: 7px 10px; font-size: 11px; }
+  .cw-search, .cw-conv-list, .cw-sidebar-foot { display: none; }
+  .cw-main { flex: 1; min-height: 0; }
   .cw-topbar { align-items: flex-start; flex-wrap: wrap; padding: 12px; }
   .cw-topbar-actions { width: 100%; flex-wrap: wrap; }
+  .cw-topbar-actions .cw-ghost { display: none; }
   .cw-model-picker { flex: 1; min-width: 0; }
   .cw-model-picker select { max-width: 100%; min-width: 0; }
   .cw-feature-toggle { order: -1; }
   .cw-feature-menu { grid-template-columns: 1fr; margin: 8px 12px 0; }
+  .cw-messages { padding: 8px 12px 6px; }
+  .cw-starters { margin: 2vh auto 0; }
+  .cw-starters h2 { margin-bottom: 12px; font-size: 18px; }
+  .cw-starter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+  .cw-starter-grid button { gap: 2px; min-height: 58px; padding: 8px; }
+  .cw-starter-grid span { font-size: 13px; }
+  .cw-starter-grid strong { font-size: 11px; }
+  .cw-starter-grid small { display: none; }
 }
