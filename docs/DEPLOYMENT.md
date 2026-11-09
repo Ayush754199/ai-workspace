@@ -80,9 +80,44 @@ python -c "import secrets; print(secrets.token_urlsafe(48))"
 Notes for the free plan:
 
 - The container filesystem is ephemeral. SQLite (`backend_app.db`) is reset on
-  every deploy -- set `DATABASE_URL` to a managed Postgres to keep data.
+  every deploy. `render.yaml` therefore declares a managed Postgres and injects
+  it as `DATABASE_URL`; without it, every deploy starts with no users.
 - `AI_GATEWAY_MODE=dev` keeps the mock provider; switch to `live` only after a
   provider key is added.
+
+### MongoDB Atlas
+
+Atlas is used for two collections (`users`, `chat_history`) and **is read on the
+login path**: `login` and `register` call `mongo.verify_ready()` first. If Atlas
+is configured but unreachable, those endpoints answer
+`503 Database temporarily unavailable` instead of silently falling back.
+
+1. Atlas -> **Cluster -> Connect -> Drivers** -> copy the `mongodb+srv://` URI.
+2. Percent-encode special characters in the password (`@` -> `%40`, `#` -> `%23`).
+3. Render -> **Environment** -> set `MONGODB_URL` (and `MONGODB_DATABASE`, default
+   `enterprise_ai_db`).
+4. Atlas -> **Network Access** must include the caller's egress IP.
+   - Quick test/demo: `0.0.0.0/0` -- works, but it opens the cluster to the
+     internet; lock it down before real users exist.
+   - Production: Render's outbound IPs are **not static** on shared plans. Use
+     Render **Static Outbound IPs** (paid), a small proxy with a fixed IP, or a
+     VPC peering/PrivateLink setup, then allow only that CIDR.
+
+Verify from the Render shell:
+
+```bash
+python -c "import asyncio,os,sys; sys.path.insert(0,'.'); from motor.motor_asyncio import AsyncIOMotorClient; \
+ asyncio.run(AsyncIOMotorClient(os.environ['MONGODB_URL'], serverSelectionTimeoutMS=5000).admin.command('ping')); print('atlas OK')"
+```
+
+### What is persisted where
+
+| Data | Store | Survives redeploy? |
+|---|---|---|
+| Users, quotas, API conversations | `DATABASE_URL` (Postgres in `render.yaml`) | Yes |
+| `users` / `chat_history` mirror | MongoDB Atlas | Yes (independent of Render) |
+| Uploaded + generated files | `ATTACHMENT_STORAGE_DIR` | Only with a mounted disk or object storage |
+| Rate-limit counters | Process memory | No -- reset on restart (by design) |
 
 ---
 

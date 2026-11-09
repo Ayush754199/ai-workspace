@@ -8,6 +8,21 @@
 # Apply it with: Render Dashboard -> New -> Blueprint -> pick this repository.
 # Existing services can also just copy the envVars below into
 # Dashboard -> your service -> Environment.
+#
+# Where data actually lives (read this before changing anything):
+#   * Identity + quota ledger + chats (SQLAlchemy) -> DATABASE_URL.
+#     Default is SQLite inside the container, which is DELETED on every deploy.
+#   * MongoDB Atlas mirrors users/chat_history and is read on login, so a missing
+#     or unreachable Atlas cluster turns login into a 503, not a fresh start.
+
+databases:
+  # Managed Postgres: survives redeploys, backups, and is what the app expects
+  # in production. CREATE DATABASE is the step that stops "fresh empty DB each
+  # deploy" from resetting users, quotas and chat history.
+  - name: ai-workspace-db
+    databaseName: ai_workspace
+    plan: free
+    region: singapore
 
 services:
   - type: web
@@ -26,24 +41,41 @@ services:
       - key: JWT_SECRET
         generateValue: true
 
-      # Documents are served from the container filesystem unless this is set.
+      # Persistent database. Render injects the connection string; database.py
+      # rewrites postgres:// -> postgresql+psycopg:// automatically.
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ai-workspace-db
+          property: connectionString
+
+      # Keep Swagger/OpenAPI off in production.
       - key: API_DOCS_ENABLED
         value: "false"
+
+      # Container filesystem is ephemeral -- uploaded/generated documents live
+      # here. Set ATTACHMENT_STORAGE_DIR to the mounted disk path (/var/data/...)
+      # on a paid plan, or attach object storage for a free-plan deployment.
+      - key: ATTACHMENT_STORAGE_DIR
+        value: /var/data/attachments
 
       # Free-tier deployment runs the gateway in dev mode (mock provider only).
       # Set this to `live` and add a provider key once one is configured.
       - key: AI_GATEWAY_MODE
         value: "dev"
 
-      # SQLite default lives inside the container and is lost on redeploy.
-      # Point DATABASE_URL at a managed Postgres (or a Render disk) to persist data.
-      # - key: DATABASE_URL
-      #   sync: false
+      # --- MongoDB Atlas -----------------------------------------------------
+      # Use the SRV URI from Atlas (Cluster -> Connect -> Drivers):
+      #   mongodb+srv://<user>:<password>@<cluster>.mongodb.net/?retryWrites=true&w=majority
+      # Escape special characters in the password (@ : / # ? [ ] %).
+      # Atlas Network Access MUST allow Render's egress IPs, otherwise every
+      # login/register answers 503 "Database temporarily unavailable".
+      - key: MONGODB_URL
+        sync: false
+      - key: MONGODB_DATABASE
+        value: enterprise_ai_db
 
       # Optional provider credentials. `sync: false` = prompted in the dashboard,
       # never stored in git.
-      - key: MONGODB_URL
-        sync: false
       - key: GEMINI_API_KEY
         sync: false
       - key: GROQ_API_KEY_1
@@ -54,3 +86,10 @@ services:
         sync: false
       - key: FAL_KEY
         sync: false
+
+    # Uncomment to keep uploaded files across deploys (requires a paid plan or
+    # a paid disk; free instances cannot mount a disk).
+    # disk:
+    #   name: workspace-data
+    #   mountPath: /var/data
+    #   sizeGB: 1

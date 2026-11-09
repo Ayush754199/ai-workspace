@@ -25,6 +25,9 @@ reportlab
 python-docx
 motor
 pymongo
+# PostgreSQL driver. The container filesystem is ephemeral on hosted platforms,
+# so DATABASE_URL normally points at a managed Postgres there.
+psycopg[binary]>=3.1
 python-dotenv>=1.0
 requests>=2.32
 beautifulsoup4>=4.12

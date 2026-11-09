@@ -9,6 +9,14 @@ import os
 # historical backend_app.db so existing installs keep their data.
 SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./backend_app.db")
 
+# Hosted Postgres add-ons hand out ``postgres://`` (Heroku-style), which SQLAlchemy 1.4+
+# rejects because the ``postgres`` dialect was removed. Normalise it to the driver
+# URL without touching any other scheme.
+if SQLALCHEMY_DATABASE_URL.startswith("postgres://"):
+    SQLALCHEMY_DATABASE_URL = "postgresql+psycopg://" + SQLALCHEMY_DATABASE_URL[len("postgres://"):]
+elif SQLALCHEMY_DATABASE_URL.startswith("postgresql://"):
+    SQLALCHEMY_DATABASE_URL = "postgresql+psycopg://" + SQLALCHEMY_DATABASE_URL[len("postgresql://"):]
+
 
 def _ensure_sqlite_parent_dir(url: str) -> None:
     """Create the folder that holds a file-backed SQLite database.
