@@ -399,11 +399,19 @@ html, body, #root { min-width: 0; max-width: 100%; overflow-x: hidden; }
 .cw-title h1 { margin: 0; overflow: hidden; font-size: 15px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .cw-title small { color: #6d7286; font-size: 10.5px; }
 .cw-topbar-actions { display: flex; align-items: center; gap: 8px; }
+.cw-feature-toggle { padding: 6px 10px; border: 1px solid #24262f; border-radius: 7px; background: #14161d; color: #c3c6d2; font-size: 11.5px; cursor: pointer; }
+.cw-feature-toggle:hover, .cw-feature-toggle[aria-expanded="true"] { border-color: #6d43c9; color: #fff; }
 .cw-model-picker { display: flex; align-items: center; gap: 6px; padding: 4px 6px 4px 10px; border: 1px solid #24262f; border-radius: 8px; background: #0a0c10; color: #8b90a3; font-size: 10.5px; }
 .cw-model-picker select { max-width: 210px; border: 0; outline: 0; background: transparent; color: #e7e8ee; font: inherit; font-size: 11.5px; }
 .cw-ghost { padding: 6px 10px; border: 1px solid #24262f; border-radius: 7px; background: #14161d; color: #c3c6d2; font-size: 11.5px; text-decoration: none; cursor: pointer; }
 .cw-ghost:hover { border-color: #3f3a5c; color: #fff; }
 .cw-banner.warn { margin: 10px 20px 0; padding: 8px 12px; border: 1px solid #5a4520; border-radius: 8px; background: #241d10; color: #f0c68a; font-size: 11.5px; }
+.cw-feature-menu { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 10px 20px 0; padding: 10px; border: 1px solid #24262f; border-radius: 10px; background: #11131a; }
+.cw-feature-menu button, .cw-feature-menu a { display: grid; grid-template-columns: auto 1fr; column-gap: 8px; align-items: center; padding: 9px 10px; border: 1px solid #24262f; border-radius: 8px; background: #0e1015; color: #c3c6d2; text-align: left; text-decoration: none; cursor: pointer; }
+.cw-feature-menu button:hover, .cw-feature-menu button.selected, .cw-feature-menu a:hover { border-color: #6d43c9; background: #1c1630; color: #fff; }
+.cw-feature-menu span { grid-row: span 2; color: #a78bfa; font-size: 16px; }
+.cw-feature-menu strong { font-size: 11.5px; }
+.cw-feature-menu small { color: #6d7286; font-size: 9.5px; }
 .cw-messages { flex: 1; overflow-y: auto; padding: 18px 20px 8px; }
 .cw-starters { max-width: 720px; margin: 8vh auto 0; text-align: center; }
 .cw-eyebrow { margin: 0 0 8px; color: #8b5cf6; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; }
@@ -719,4 +727,17 @@ html, body, #root { min-width: 0; max-width: 100%; overflow-x: hidden; }
   .cw-sidebar { display: flex; flex-direction: column; max-height: 46vh; }
   .cw-conv-list { max-height: 26vh; }
   .cw-sidebar-foot { position: sticky; bottom: 0; }
+}
+
+@media (max-width: 900px) {
+  .cw-feature-menu { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 650px) {
+  .cw-topbar { align-items: flex-start; flex-wrap: wrap; padding: 12px; }
+  .cw-topbar-actions { width: 100%; flex-wrap: wrap; }
+  .cw-model-picker { flex: 1; min-width: 0; }
+  .cw-model-picker select { max-width: 100%; min-width: 0; }
+  .cw-feature-toggle { order: -1; }
+  .cw-feature-menu { grid-template-columns: 1fr; margin: 8px 12px 0; }
 }

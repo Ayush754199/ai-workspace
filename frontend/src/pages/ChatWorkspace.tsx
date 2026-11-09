@@ -97,6 +97,7 @@ const ChatWorkspace: React.FC = () => {
   const [deleting, setDeleting] = useState(false);
   const [notice, setNotice] = useState("");
   const [chatMode, setChatMode] = useState<"chat" | "image">("chat");
+  const [featureMenuOpen, setFeatureMenuOpen] = useState(false);
   const [imagePrompt, setImagePrompt] = useState("");
   const [imageSource, setImageSource] = useState<File | null>(null);
   const [imageBusy, setImageBusy] = useState(false);
@@ -595,6 +596,9 @@ const ChatWorkspace: React.FC = () => {
             <small>{messages.length} messages · context sent automatically</small>
           </div>
           <div className="cw-topbar-actions">
+            <button className="cw-feature-toggle" type="button" aria-expanded={featureMenuOpen} onClick={() => setFeatureMenuOpen((open) => !open)}>
+              <span aria-hidden="true">☰</span> Features
+            </button>
             <label className="cw-model-picker" title={activeModel?.reason || "Choose the model for the next message"}>
               <span>Model</span>
               <select value={modelId} onChange={(e) => setModelId(e.target.value)}>
@@ -611,6 +615,21 @@ const ChatWorkspace: React.FC = () => {
             <a className="cw-ghost" href="/images" title="Open image AI">◫ Images</a>
           </div>
         </header>
+
+        {featureMenuOpen && (
+          <div className="cw-feature-menu" aria-label="Workspace features">
+            <button className={chatMode === "chat" ? "selected" : ""} type="button" onClick={() => { setChatMode("chat"); setFeatureMenuOpen(false); }}>
+              <span>💬</span><strong>Chat</strong><small>Ask anything</small>
+            </button>
+            <button className={chatMode === "image" ? "selected" : ""} type="button" onClick={() => { setChatMode("image"); setFeatureMenuOpen(false); }}>
+              <span>✦</span><strong>Image</strong><small>Generate or edit</small>
+            </button>
+            <Link to="/video-studio" onClick={() => setFeatureMenuOpen(false)}><span>▶</span><strong>Video</strong><small>Create videos</small></Link>
+            <Link to="/documents" onClick={() => setFeatureMenuOpen(false)}><span>▤</span><strong>Documents</strong><small>Read and generate</small></Link>
+            <Link to="/office" onClick={() => setFeatureMenuOpen(false)}><span>▦</span><strong>Office</strong><small>Workspace tools</small></Link>
+            <Link to="/research" onClick={() => setFeatureMenuOpen(false)}><span>◎</span><strong>Research</strong><small>Deep research</small></Link>
+          </div>
+        )}
 
         {activeModel && !activeModel.selectable && (
           <div className="cw-banner warn">
@@ -814,10 +833,6 @@ const ChatWorkspace: React.FC = () => {
               </>
             ) : (
               <>
-                <label className="chat-search-toggle">
-                  <input type="checkbox" checked={webSearch} onChange={(event) => setWebSearch(event.target.checked)} />
-                  Search the web for this answer
-                </label>
                 <textarea
                   ref={textareaRef}
                   value={prompt}
@@ -834,7 +849,7 @@ const ChatWorkspace: React.FC = () => {
                 <div className="cw-composer-actions">
                   <button type="button" className="cw-icon" title="Attach files" onClick={() => fileRef.current?.click()}>📎</button>
                   <VoiceControls onTranscript={(text) => setPrompt((current) => (current ? `${current} ${text}` : text))} />
-                  <span className="cw-hint">{researchStatus || (webSearch ? "Web research enabled" : modelId === "auto" ? "Auto model" : modelId)}</span>
+                  <span className="cw-hint">{researchStatus || "Ready"}</span>
                   {sending ? (
                     <button type="button" className="cw-stop" onClick={stop}>■ Stop</button>
                   ) : (
