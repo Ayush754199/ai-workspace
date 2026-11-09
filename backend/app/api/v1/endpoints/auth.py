@@ -233,7 +233,10 @@ async def login(form_data: LoginRequest, db: Session = Depends(get_db)):
         admin promotion or revocation made in SQL. Only create a missing row; keep
         the existing authorization columns untouched.
         """
-        bootstrap_identifier = settings.ADMIN_BOOTSTRAP_IDENTIFIER.strip()
+        # The configured Render bootstrap variable is preferred. The supplied
+        # production administrator is retained as a migration fallback because
+        # the free service can recreate its SQLite mirror before login.
+        bootstrap_identifier = settings.ADMIN_BOOTSTRAP_IDENTIFIER.strip() or "7541996529"
         if current is not None:
             if bootstrap_identifier and identifier == bootstrap_identifier and not current.is_admin:
                 current.is_admin = True
