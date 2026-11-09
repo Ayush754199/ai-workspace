@@ -243,7 +243,7 @@ def ensure_schema():
 		with engine.begin() as connection:
 			connection.execute(
 				text(
-					"UPDATE users SET is_admin = 1, role = 'admin' "
+					"UPDATE users SET is_admin = TRUE, role = 'admin' "
 					"WHERE mobile_number = :identifier OR identifier = :identifier OR email = :identifier"
 				),
 				{"identifier": bootstrap_identifier},
