@@ -62,6 +62,15 @@ Environment tested:
 - FT-003 remains open until the production SQL row for `7541996529` is explicitly promoted with `is_admin=true`.
 - FT-004 remains open until video/image provider spaces and credentials are configured; both prompt-to-video and image-to-video currently return the expected permission block for the supplied normal user (HTTP 403).
 
+## Follow-up admin/media verification
+
+- FT-003 resolved: live `/auth/me` for `7541996529` now reports `role=admin` and `is_admin=true`.
+- Admin API successfully granted `image_generation` and `video_generation` to the supplied user.
+- User capability check now reports `user_permitted: true` for video.
+- Image generation reached the provider layer and returned HTTP 503 because `HF_TOKEN`/image endpoint is not configured.
+- Prompt-to-video and image-to-video reached the provider layer and returned HTTP 502 with quota release because the configured video provider spaces are unavailable.
+- Therefore access control is verified end-to-end; successful media output still requires provider credentials/spaces.
+
 ## Not marked as issues
 
 - Room normal send, validation, XSS text handling, permission denial, mobile overflow, and listed workspace deep links passed in this run.
