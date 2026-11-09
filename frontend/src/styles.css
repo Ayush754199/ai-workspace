@@ -506,8 +506,6 @@ html, body, #root { min-width: 0; max-width: 100%; overflow-x: hidden; }
 .cw-send, .cw-stop { padding: 6px 14px; border: 0; border-radius: 8px; font-size: 11.5px; font-weight: 650; cursor: pointer; }
 .cw-send { background: #f2f3f7; color: #121319; }
 .cw-send:disabled { opacity: .45; cursor: not-allowed; }
-.cw-image-action { padding: 6px 10px; border: 1px solid #6d43c9; border-radius: 8px; background: #1c1630; color: #ddd6fe; font-size: 11px; font-weight: 600; cursor: pointer; }
-.cw-image-action:disabled { opacity: .45; cursor: not-allowed; }
 .cw-stop { background: #2a1418; color: #ffc4c4; }
 .cw-disclaimer { max-width: 880px; margin: 6px auto 0; color: #4f5464; font-size: 10px; text-align: center; }
 .cw-artifact-pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; margin: 14px 12px 12px 0; overflow: hidden; border: 1px solid #292d3b; border-radius: 12px; background: #11131a; box-shadow: 0 14px 40px #0004; }

@@ -108,15 +108,15 @@ describe("Chat sidebar", () => {
   });
 });
 
-describe("Chat composer image mode", () => {
+describe("Unified chat composer", () => {
   beforeEach(() => mockApi());
 
-  it("switches to image generation inside the chat", async () => {
+  it("uses one composer and one Send action for chat and attachments", async () => {
     renderChat();
     await waitFor(() => expect(screen.getByText("First chat")).toBeTruthy());
-    const imageTab = screen.getByRole("tab", { name: /Image/i });
-    fireEvent.click(imageTab);
-    expect(screen.getByPlaceholderText(/mountain lake at sunrise/i)).toBeTruthy();
+    expect(screen.getByPlaceholderText(/Message the assistant/i)).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: /Send/i })).toHaveLength(1);
+    expect(screen.queryByRole("tab", { name: /Image/i })).toBeNull();
   });
 });
 

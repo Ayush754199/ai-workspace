@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
-import { Attachment, ChatMessage, ChatModel, Conversation, chatV2, imageApi } from "../api/workspaceApi";
+import { Attachment, ChatMessage, ChatModel, Conversation, chatV2 } from "../api/workspaceApi";
 import renderMarkdown from "../components/Markdown";
 import VoiceControls from "../components/VoiceControls";
 
@@ -91,17 +91,12 @@ const ChatWorkspace: React.FC = () => {
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const imageFileRef = useRef<HTMLInputElement>(null);
   const [copiedId, setCopiedId] = useState<number | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{ id: number; title: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [notice, setNotice] = useState("");
   const [chatMode, setChatMode] = useState<"chat" | "image">("chat");
   const [featureMenuOpen, setFeatureMenuOpen] = useState(false);
-  const [imageSource, setImageSource] = useState<File | null>(null);
-  const [imageSourceUrl, setImageSourceUrl] = useState("");
-  const [imageIntent, setImageIntent] = useState(false);
-  const [imageBusy, setImageBusy] = useState(false);
   const [artifactCopied, setArtifactCopied] = useState(false);
   const artifactFrames = useRef(new Map<number, HTMLIFrameElement>());
   const artifactView = useMemo(() => {
@@ -252,7 +247,6 @@ const ChatWorkspace: React.FC = () => {
     };
     setMessages((current) => [...current, optimistic, placeholder]);
     setPrompt("");
-    setImageIntent(false);
     setAttachments([]);
     const controller = new AbortController();
     abortRef.current = controller;
@@ -374,93 +368,11 @@ const ChatWorkspace: React.FC = () => {
     window.setTimeout(() => URL.revokeObjectURL(url), 4000);
   };
 
-  const generateInChat = async () => {
-    if (!token) return;
-    const text = prompt.trim();
-    if (!text) return;
-    let conversationId = activeId;
-    if (conversationId == null) {
-      try {
-        const conversation = await chatV2.createConversation(token, text.slice(0, 60) || "Image request", "chat");
-        setConversations((current) => [conversation, ...current]);
-        conversationId = conversation.id;
-        setActiveId(conversation.id);
-      } catch (err: any) {
-        setError(err?.message || "Could not start a conversation");
-        return;
-      }
-    }
-    setImageBusy(true);
-    setError("");
-    const sentPrompt = text;
-    const sentImage = imageSource;
-    const sentImageUrl = imageSourceUrl;
-    const userMessage: ChatMessage = {
-      id: -Date.now(),
-      role: "user",
-      content: imageSource ? `✎ Edit image: ${text}` : `✦ Generate image: ${text}`,
-      provider: null,
-      model: null,
-      status: "complete",
-      attachments: [],
-      citations: [],
-      meta: { ...(sentImageUrl ? { attachedImageUrl: sentImageUrl } : {}) },
-      created_at: new Date().toISOString(),
-    };
-    const placeholder: ChatMessage = {
-      id: -Date.now() - 1,
-      role: "assistant",
-      content: "",
-      provider: "image",
-      model: null,
-      status: "streaming",
-      attachments: [],
-      citations: [],
-      meta: { kind: "image", pending: true },
-      created_at: new Date().toISOString(),
-      pending: true,
-    };
-    setMessages((current) => [...current, userMessage, placeholder]);
-    setPrompt("");
-    setImageIntent(false);
-    setImageSource(null);
-    setImageSourceUrl("");
-    try {
-      const blob = await imageApi.generate(token, sentPrompt, sentImage);
-      const url = URL.createObjectURL(blob);
-      setMessages((current) =>
-        current.map((message) =>
-          message.id === placeholder.id
-            ? {
-                ...message,
-                pending: false,
-                status: "complete",
-                content: sentPrompt,
-                meta: { kind: "image", imageUrl: url, prompt: sentPrompt, edited: Boolean(sentImage) },
-              }
-            : message,
-        ),
-      );
-      loadConversations();
-    } catch (err: any) {
-      const reason = err?.message || "Image request failed";
-      setMessages((current) =>
-        current.map((message) =>
-          message.id === placeholder.id ? { ...message, pending: false, status: "failed", error: reason, content: "" } : message,
-        ),
-      );
-      setError(reason);
-    } finally {
-      setImageBusy(false);
-    }
-  };
-
   const reuseAsSource = async (url: string) => {
     try {
       const blob = await (await fetch(url)).blob();
-      setImageSource(new File([blob], "previous-image.png", { type: blob.type || "image/png" }));
-      setImageSourceUrl(url);
-      setNotice("Image attached — describe the change you want.");
+      await attachFiles([new File([blob], "previous-image.png", { type: blob.type || "image/png" })]);
+      setNotice("Image attached — describe what you want and press Send.");
     } catch {
       setError("Could not reuse this image");
     }
@@ -802,13 +714,6 @@ const ChatWorkspace: React.FC = () => {
                 ))}
               </div>
             )}
-            {imageSource && (
-              <div className="cw-image-chip" aria-label="Image to edit">
-                {imageSourceUrl && <img src={imageSourceUrl} alt="Selected image" />}
-                <span><strong>{imageSource.name}</strong><small>Ready to edit</small></span>
-                <button type="button" onClick={() => { setImageSource(null); setImageSourceUrl(""); }} aria-label="Remove image">✕</button>
-              </div>
-            )}
             <textarea
               ref={textareaRef}
               value={prompt}
@@ -819,24 +724,13 @@ const ChatWorkspace: React.FC = () => {
                   if (canSend) void send();
                 }
               }}
-              placeholder={imageSource || imageIntent ? "Describe the image… e.g. a cinematic photo of a mountain lake at sunrise" : "Message the assistant… attach a file or generate an image from here"}
+              placeholder="Message the assistant… attach a file and describe what you need"
               rows={2}
             />
             <div className="cw-composer-actions">
               <button type="button" className="cw-icon" title="Attach files" onClick={() => fileRef.current?.click()}>📎</button>
-              <button type="button" className={`cw-icon ${imageSource ? "has-source" : ""}`} title={imageSource ? "Choose another image to edit" : "Attach an image for editing"} onClick={() => imageFileRef.current?.click()}>🖼</button>
               <VoiceControls onTranscript={(text) => setPrompt((current) => (current ? `${current} ${text}` : text))} />
-              <span className="cw-hint">{researchStatus || (imageSource ? "Image editing ready" : "Chat and web search ready")}</span>
-              <button type="button" role="tab" aria-selected={imageIntent || Boolean(imageSource)} className="cw-image-action" disabled={!token || imageBusy} onClick={() => {
-                if (!prompt.trim()) {
-                  setImageIntent(true);
-                  textareaRef.current?.focus();
-                  return;
-                }
-                void generateInChat();
-              }}>
-                {imageBusy ? "Generating…" : imageSource ? "Edit image ↑" : "Generate image"}
-              </button>
+              <span className="cw-hint">{researchStatus || "Chat and attachments ready"}</span>
               {sending ? (
                 <button type="button" className="cw-stop" onClick={stop}>■ Stop</button>
               ) : (
@@ -857,20 +751,6 @@ const ChatWorkspace: React.FC = () => {
           accept=".pdf,.docx,.pptx,.xlsx,.xlsm,.txt,.md,.csv,image/png,image/jpeg,image/webp,audio/*"
           onChange={(e) => {
             if (e.target.files) void attachFiles(e.target.files);
-            e.target.value = "";
-          }}
-        />
-        <input
-          ref={imageFileRef}
-          type="file"
-          hidden
-          accept="image/png,image/jpeg,image/webp"
-          onChange={(e) => {
-            const chosen = e.target.files?.[0];
-            if (chosen) {
-              setImageSource(chosen);
-              setNotice(`Image attached: ${chosen.name}`);
-            }
             e.target.value = "";
           }}
         />
