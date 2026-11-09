@@ -315,6 +315,18 @@ select { padding: 8px; border: 1px solid #c8d8d0; border-radius: 5px; }
   .vd-export-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 @media (max-width: 1080px) {
+  /* Keep the editor's intentionally wide timeline inside its own scroll area.
+     Without these min-width constraints, the ruler's intrinsic width expands
+     the whole page on tablets and narrow laptops. */
+  .workspace-main:has(.vd-app),
+  .workspace-main:has(.vd-app) .vd-app,
+  .workspace-main:has(.vd-app) .vd-body,
+  .workspace-main:has(.vd-app) .vd-center,
+  .workspace-main:has(.vd-app) .vd-timeline { min-width: 0; max-width: 100%; }
+  .workspace-main:has(.vd-app) .vd-ruler-wrap,
+  .workspace-main:has(.vd-app) .vd-track-row { min-width: 0; max-width: 100%; overflow-x: auto; }
+  .workspace-main:has(.vd-app) .vd-ruler,
+  .workspace-main:has(.vd-app) .vd-lanes { min-width: 0; max-width: 100%; }
   .vd-body { grid-template-columns: 1fr; }
   .vd-media-panel, .vd-inspector { max-height: none; border: 0; border-bottom: 1px solid var(--vd-line); }
   .vd-bottom { grid-template-columns: 1fr; }
