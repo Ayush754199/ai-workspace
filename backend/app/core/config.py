@@ -74,7 +74,11 @@ class Settings(BaseSettings):
     AUTH_RATE_LIMIT_PER_MINUTE: int = Field(default=10, ge=1)
     # Comma-separated origins allowed to call the API from a browser. Empty means
     # wildcard (development only) -- always set this in production.
-    CORS_ORIGINS: str = ""
+    CORS_ORIGINS: str = (
+        "https://ai-workspace-frontend-907h.onrender.com,"
+        "http://localhost:5173,http://127.0.0.1:5173,"
+        "http://localhost:5174,http://127.0.0.1:5174"
+    )
     # API documentation is useful in development but must be explicitly enabled
     # for a deployed instance.
     API_DOCS_ENABLED: bool = True
