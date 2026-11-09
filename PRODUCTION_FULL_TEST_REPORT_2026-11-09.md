@@ -37,4 +37,6 @@ Not ready for mobile-app rollout yet. Core chat and office documents pass, and t
 - User media permissions were re-granted from the admin account for the verification run.
 - Native Gemini image-generation fallback was added, using the current Gemini image-output API; the live key test returned HTTP 401, so a valid Gemini key must be set before image generation can pass.
 - A free Render Postgres database was linked to the backend service. It expires on 2026-12-09 unless upgraded or replaced.
+- A FAL queue fallback was added for image, text-to-video, and image-to-video. Validation showed both configured FAL accounts are locked because their balances are exhausted, so this fallback will become usable after credit is added or a funded key is supplied.
+- Validation showed both Hugging Face tokens authenticate, but the configured `Wan-AI/Wan2.1` Space is in `RUNTIME_ERROR`; this is an upstream Space failure, not an application permission failure. Both LTX credentials returned authentication failures.
 

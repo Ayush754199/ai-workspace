@@ -127,6 +127,12 @@ def generate_wan_video(prompt: str, *, space: str | None = None, api_name: str |
             return _ltx_video(prompt, timeout=timeout)
         except Exception as ltx_exc:
             log_connection_failure(ltx_exc, endpoint=f"{LTX_API_BASE_URL}/v2/text-to-video", payload={"operation": "primary"}, function="generate_ltx_video")
+    try:
+        from backend.fal_media import configured, generate_video
+        if configured():
+            return generate_video(prompt)
+    except Exception as fal_exc:
+        log_connection_failure(fal_exc, endpoint="https://queue.fal.run/minimax/h3-max-turbo/text-to-video", payload={"operation": "fallback"}, function="generate_fal_video")
     target_space = (space or os.getenv("HF_TEXT_TO_VIDEO_SPACE") or HF_TEXT_TO_VIDEO_SPACE or "Wan-AI/Wan2.1").strip()
     if not target_space:
         raise RuntimeError("HF_TEXT_TO_VIDEO_SPACE is not configured.")

@@ -141,6 +141,11 @@ def generate_gemini_image(prompt: str, credentials: tuple[ProviderCredential, ..
     )
 
 
+def generate_fal_image(prompt: str) -> bytes:
+    from backend.fal_media import generate_image
+    return generate_image(prompt)
+
+
 async def load_session_context(session_id: str, user_id: int) -> str:
     if not mongo.enabled:
         return ""
@@ -310,11 +315,16 @@ async def image_studio(
         and settings.CLOUDFLARE_API_TOKEN.strip()
         and not settings.CLOUDFLARE_API_TOKEN.strip().startswith("cfat_")
     )
+    try:
+        from backend.fal_media import configured as fal_configured
+        fal_ready = fal_configured()
+    except Exception:
+        fal_ready = False
     gemini_ready = bool(gemini_credentials)
-    if not credentials and not cloudflare_ready and not gemini_ready:
+    if not credentials and not cloudflare_ready and not gemini_ready and not fal_ready:
         QuotaService().release(db, reservation.reservation_id, failure=True)
         raise HTTPException(status_code=503, detail="Image generation is not configured. Set GEMINI_API_KEY (or GEMINI_KEY_1) on the server.")
-    if not image_endpoint and not cloudflare_ready and not gemini_ready:
+    if not image_endpoint and not cloudflare_ready and not gemini_ready and not fal_ready:
         QuotaService().release(db, reservation.reservation_id, failure=True)
         raise HTTPException(status_code=503, detail="Image generation is not configured. Set HF_IMAGE_API_URL or Gemini credentials on the server.")
     if image is not None:
@@ -391,13 +401,32 @@ async def image_studio(
                         output = call_with_key_rotation("Hugging Face", hf_fallback, endpoint=image_endpoint, payload={"operation": "image_generation_fallback"}, credentials=credentials)
                         provider_name = "huggingface-fallback"
                     except Exception:
-                        if not gemini_ready:
+                        if gemini_ready:
+                            try:
+                                output = generate_gemini_image(prompt, gemini_credentials)
+                                provider_name = "gemini-fallback"
+                            except Exception:
+                                if not fal_ready:
+                                    raise
+                                output = generate_fal_image(prompt)
+                                provider_name = "fal-fallback"
+                        elif fal_ready:
+                            output = generate_fal_image(prompt)
+                            provider_name = "fal-fallback"
+                        else:
                             raise
-                        output = generate_gemini_image(prompt, gemini_credentials)
-                        provider_name = "gemini-fallback"
                 elif gemini_ready:
-                    output = generate_gemini_image(prompt, gemini_credentials)
-                    provider_name = "gemini"
+                    try:
+                        output = generate_gemini_image(prompt, gemini_credentials)
+                        provider_name = "gemini"
+                    except Exception:
+                        if not fal_ready:
+                            raise
+                        output = generate_fal_image(prompt)
+                        provider_name = "fal-fallback"
+                elif fal_ready:
+                    output = generate_fal_image(prompt)
+                    provider_name = "fal"
                 else:
                     raise
             QuotaService().commit(db, reservation.reservation_id, detail={"operation": "image_generation", "provider": provider_name})

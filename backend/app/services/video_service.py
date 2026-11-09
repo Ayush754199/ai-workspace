@@ -30,6 +30,12 @@ def image_to_video(data: bytes, filename: str, prompt: str, *, space: str | None
             return _ltx_video(prompt or "Animate this image with subtle natural motion", image_data=data)
     except Exception:
         pass
+    try:
+        from backend.fal_media import configured, generate_video
+        if configured():
+            return generate_video(prompt or "Animate this image with subtle natural motion", image_data=data)
+    except Exception:
+        pass
     if not target_space:
         try:
             from backend.media_service import _ltx_video
