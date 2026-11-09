@@ -24,6 +24,12 @@ except ModuleNotFoundError:  # pragma: no cover - package import layout fallback
 def image_to_video(data: bytes, filename: str, prompt: str, *, space: str | None = None, api_name: str | None = None) -> dict[str, Any]:
     target_space = (space or settings.HF_IMAGE_TO_VIDEO_SPACE or "").strip()
     credentials = get_provider_credentials("Hugging Face")
+    try:
+        from backend.media_service import LTX_API_KEY, _ltx_video
+        if LTX_API_KEY:
+            return _ltx_video(prompt or "Animate this image with subtle natural motion", image_data=data)
+    except Exception:
+        pass
     if not target_space:
         try:
             from backend.media_service import _ltx_video

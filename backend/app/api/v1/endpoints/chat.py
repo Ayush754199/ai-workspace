@@ -267,7 +267,13 @@ async def image_studio(
 
     credentials = get_provider_credentials("Hugging Face")
     image_endpoint = settings.HF_IMAGE_API_URL.strip()
-    cloudflare_ready = bool(settings.CLOUDFLARE_ACCOUNT_ID.strip() and settings.CLOUDFLARE_API_TOKEN.strip())
+    # `cfat_` R2 S3 tokens validate at Cloudflare but cannot call Workers AI.
+    # Do not select that incompatible token as the primary image provider.
+    cloudflare_ready = bool(
+        settings.CLOUDFLARE_ACCOUNT_ID.strip()
+        and settings.CLOUDFLARE_API_TOKEN.strip()
+        and not settings.CLOUDFLARE_API_TOKEN.strip().startswith("cfat_")
+    )
     if not credentials and not cloudflare_ready:
         QuotaService().release(db, reservation.reservation_id, failure=True)
         raise HTTPException(status_code=503, detail="Hugging Face image generation is not configured. Set HF_TOKEN (or HF_TOKEN_1/HF_TOKENS) on the server.")

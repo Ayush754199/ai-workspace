@@ -23,8 +23,14 @@ CLOUDINARY_API_SECRET = os.getenv("CLOUDINARY_API_SECRET", "").strip()
 HF_TEXT_TO_VIDEO_SPACE = os.getenv("HF_TEXT_TO_VIDEO_SPACE", "Wan-AI/Wan2.1").strip()
 HF_TOKEN = os.getenv("HF_TOKEN", "").strip() or os.getenv("HF_TOKEN_1", "").strip()
 HF_VIDEO_API_NAME = os.getenv("HF_TEXT_TO_VIDEO_API_NAME", "").strip() or None
-LTX_API_KEY = os.getenv("LTX_API_KEY", "").strip()
+LTX_API_KEY = (
+    os.getenv("LTX_API_KEY", "").strip()
+    or os.getenv("LTX_API_KEY_1", "").strip()
+    or os.getenv("LTX_TOKEN_1", "").strip()
+)
 LTX_API_BASE_URL = os.getenv("LTX_API_BASE_URL", "https://api.ltx.io").strip().rstrip("/")
+if LTX_API_BASE_URL.endswith("/v1"):
+    LTX_API_BASE_URL = LTX_API_BASE_URL[:-3]
 
 
 def _ltx_video(prompt: str, *, image_data: bytes | None = None, timeout: float = 180.0) -> dict[str, Any]:
@@ -116,6 +122,11 @@ def generate_wan_video(prompt: str, *, space: str | None = None, api_name: str |
     if not prompt or not prompt.strip():
         raise ValueError("A non-empty prompt is required for text-to-video generation.")
 
+    if LTX_API_KEY:
+        try:
+            return _ltx_video(prompt, timeout=timeout)
+        except Exception as ltx_exc:
+            log_connection_failure(ltx_exc, endpoint=f"{LTX_API_BASE_URL}/v2/text-to-video", payload={"operation": "primary"}, function="generate_ltx_video")
     target_space = (space or os.getenv("HF_TEXT_TO_VIDEO_SPACE") or HF_TEXT_TO_VIDEO_SPACE or "Wan-AI/Wan2.1").strip()
     if not target_space:
         raise RuntimeError("HF_TEXT_TO_VIDEO_SPACE is not configured.")
