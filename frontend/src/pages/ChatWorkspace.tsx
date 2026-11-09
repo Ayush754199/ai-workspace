@@ -854,7 +854,7 @@ const ChatWorkspace: React.FC = () => {
           type="file"
           multiple
           hidden
-          accept=".pdf,.txt,.md,.csv,image/png,image/jpeg,image/webp,audio/*"
+          accept=".pdf,.docx,.pptx,.xlsx,.xlsm,.txt,.md,.csv,image/png,image/jpeg,image/webp,audio/*"
           onChange={(e) => {
             if (e.target.files) void attachFiles(e.target.files);
             e.target.value = "";
