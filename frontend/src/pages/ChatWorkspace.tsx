@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Link } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { Attachment, ChatMessage, ChatModel, Conversation, chatV2 } from "../api/workspaceApi";
+import { imageApi } from "../api/workspaceApi";
 import renderMarkdown from "../components/Markdown";
 import VoiceControls from "../components/VoiceControls";
 
@@ -80,6 +81,8 @@ const ChatWorkspace: React.FC = () => {
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [uploadingFiles, setUploadingFiles] = useState(0);
+  const attachmentFiles = useRef(new Map<number, File>());
   const [sending, setSending] = useState(false);
   const [researchStatus, setResearchStatus] = useState("");
   const [error, setError] = useState("");
@@ -190,15 +193,25 @@ const ChatWorkspace: React.FC = () => {
 
   const attachFiles = async (files: FileList | File[]) => {
     if (!token) return;
-    for (const file of Array.from(files)) {
+    const selected = Array.from(files);
+    if (!selected.length) return;
+    setError("");
+    setNotice(selected.length === 1 ? `Uploading ${selected[0].name}…` : `Uploading ${selected.length} files…`);
+    setUploadingFiles(selected.length);
+    for (const file of selected) {
       try {
         const uploaded = await chatV2.upload(token, file, activeId ?? undefined);
         const preview = file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined;
+        attachmentFiles.current.set(uploaded.id, file);
         setAttachments((current) => [...current, preview ? { ...uploaded, preview } : uploaded]);
       } catch (err: any) {
-        setError(err?.message || "Upload failed");
+        const message = err?.message || "Upload failed";
+        setError(`${file.name}: ${message}`);
+      } finally {
+        setUploadingFiles((current) => Math.max(0, current - 1));
       }
     }
+    setNotice((current) => current.startsWith("Uploading ") ? "File attached — add your instruction and press Send." : current);
   };
 
   const send = async (override?: string) => {
@@ -218,8 +231,10 @@ const ChatWorkspace: React.FC = () => {
       }
     }
     setSending(true);
+    setResearchStatus(attachments.length ? "Preparing your attachment…" : "Preparing your answer…");
     setError("");
     const attachmentIds = attachments.map((item) => item.id);
+    const imageAttachment = attachments.find((item) => item.kind === "image" && attachmentFiles.current.has(item.id));
     const optimistic: ChatMessage = {
       id: -Date.now(),
       role: "user",
@@ -251,6 +266,25 @@ const ChatWorkspace: React.FC = () => {
     const controller = new AbortController();
     abortRef.current = controller;
     try {
+      if (imageAttachment) {
+        setResearchStatus("Editing your image…");
+        const sourceFile = attachmentFiles.current.get(imageAttachment.id);
+        if (!sourceFile) throw new Error("The attached image is no longer available. Please attach it again.");
+        const output = await imageApi.generate(token, content || "Improve this image", sourceFile);
+        const imageUrl = URL.createObjectURL(output);
+        attachmentIds.forEach((id) => attachmentFiles.current.delete(id));
+        setMessages((current) => current.map((message) => message.id === placeholder.id
+          ? {
+              ...message,
+              content: "Image edited successfully.",
+              status: "complete",
+              pending: false,
+              meta: { kind: "image", imageUrl, prompt: content || "Improve this image" },
+            }
+          : message));
+        return;
+      }
+      attachmentIds.forEach((id) => attachmentFiles.current.delete(id));
       let text = "";
       const updateStreamedText = (value: string) => {
         const parsed = parseArtifact(value);
@@ -318,6 +352,7 @@ const ChatWorkspace: React.FC = () => {
         setError(text);
       }
     } finally {
+      attachmentIds.forEach((id) => attachmentFiles.current.delete(id));
       setSending(false);
       setResearchStatus("");
       abortRef.current = null;
@@ -709,7 +744,7 @@ const ChatWorkspace: React.FC = () => {
                   <span key={attachment.id} className="cw-file-chip">
                     {attachment.content_type.startsWith("image/") && attachment.preview ? <img src={attachment.preview} alt="" /> : <span>📎</span>}
                     <b>{attachment.filename}</b>
-                    <button type="button" onClick={() => setAttachments((current) => current.filter((item) => item.id !== attachment.id))} aria-label={`Remove ${attachment.filename}`}>✕</button>
+                    <button type="button" onClick={() => { attachmentFiles.current.delete(attachment.id); setAttachments((current) => current.filter((item) => item.id !== attachment.id)); }} aria-label={`Remove ${attachment.filename}`}>✕</button>
                   </span>
                 ))}
               </div>
@@ -730,11 +765,13 @@ const ChatWorkspace: React.FC = () => {
             <div className="cw-composer-actions">
               <button type="button" className="cw-icon" title="Attach files" onClick={() => fileRef.current?.click()}>📎</button>
               <VoiceControls onTranscript={(text) => setPrompt((current) => (current ? `${current} ${text}` : text))} />
-              <span className="cw-hint">{researchStatus || "Chat and attachments ready"}</span>
+              <span className={`cw-hint${researchStatus || uploadingFiles ? " is-active" : ""}`} role="status">
+                {uploadingFiles ? `Uploading ${uploadingFiles} file${uploadingFiles === 1 ? "" : "s"}…` : researchStatus || "Chat and attachments ready"}
+              </span>
               {sending ? (
                 <button type="button" className="cw-stop" onClick={stop}>■ Stop</button>
               ) : (
-                <button type="submit" className="cw-send" disabled={!canSend}>{sending ? "…" : "Send ↑"}</button>
+              <button type="submit" className="cw-send" disabled={!canSend || uploadingFiles > 0}>{sending ? "Working…" : uploadingFiles ? "Uploading…" : "Send ↑"}</button>
               )}
             </div>
           </form>

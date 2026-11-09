@@ -503,6 +503,7 @@ html, body, #root { min-width: 0; max-width: 100%; overflow-x: hidden; }
 .cw-icon.recording { border-color: #b4544c; color: #ff8b83; animation: cw-pulse 1.2s infinite; }
 @keyframes cw-pulse { 50% { box-shadow: 0 0 0 4px #b4544c33; } }
 .cw-hint { flex: 1; overflow: hidden; color: #5e6376; font-size: 10px; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+.cw-hint.is-active { color: #b7c4ff; }
 .cw-send, .cw-stop { padding: 6px 14px; border: 0; border-radius: 8px; font-size: 11.5px; font-weight: 650; cursor: pointer; }
 .cw-send { background: #f2f3f7; color: #121319; }
 .cw-send:disabled { opacity: .45; cursor: not-allowed; }
