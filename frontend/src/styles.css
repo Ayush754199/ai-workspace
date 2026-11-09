@@ -47,6 +47,28 @@ select { padding: 8px; border: 1px solid #c8d8d0; border-radius: 5px; }
 @media (max-width: 520px) { html, body { overflow-x: hidden; } .auth-card { width: 100%; max-width: calc(100vw - 32px); padding: 26px 21px; border-radius: 12px; }.auth-brand { margin-bottom: 30px; }.auth-heading h2 { font-size: 25px; }.auth-heading p:last-child { max-width: 100%; overflow-wrap: anywhere; }.auth-brand small { white-space: normal; } }
 @media (max-width: 650px) { .workspace-topbar, .studio-header { display: block; }.new-conversation { margin-top: 16px; }.new-conversation input { flex: 1; width: auto; }.chat-workspace-grid { display: block; min-height: calc(100vh - 150px); }.chat-workspace-grid.chat-visible .conversation-sidebar { display: none; }.chat-workspace-grid.rooms-visible .conversation-main { display: none; }.conversation-sidebar { min-height: 550px; border-right: 0; }.conversation-header { align-items: flex-start; flex-wrap: wrap; }.conversation-actions { width: 100%; justify-content: flex-start; }.chat-composer { flex-wrap: wrap; }.chat-composer textarea { flex-basis: 100%; }.image-attach { max-width: none; flex: 1; }.studio-sections { grid-template-columns: 1fr; }.settings-grid { grid-template-columns: 1fr; }.editor-reference-grid { grid-template-columns: 1fr; }.editor-assets, .editor-inspector { display: none; }.preview-canvas { height: 220px; } }
 @media (max-width: 650px) { .workspace-sidebar { width: 56px; flex-basis: 56px; padding: 16px 6px; overflow: hidden; }.workspace-brand { padding: 0 6px 22px; font-size: 0; white-space: nowrap; }.workspace-brand .brand-mark { display: block; font-size: 18px; }.shell-nav-item { justify-content: center; gap: 0; padding: 11px 4px; font-size: 0; white-space: nowrap; }.shell-nav-item > span:first-child { font-size: 14px; }.shell-nav-label { overflow: hidden; height: 12px; margin-left: 6px; margin-right: 6px; font-size: 0; }.shell-nav-label-spaced { margin-top: 25px; }.workspace-main { min-width: 0; max-width: calc(100vw - 56px); overflow-x: hidden; }.chat-workspace, .page-frame, .video-studio-page { width: 100%; max-width: 100%; padding: 20px 12px; }.workspace-topbar h1, .studio-header h1 { font-size: 29px; }.page-subtitle { max-width: 100%; overflow-wrap: anywhere; }.new-conversation { width: 100%; }.new-conversation input { min-width: 0; }.chat-workspace-grid { width: 100%; }.conversation-header { padding: 16px 14px; }.conversation-actions button { max-width: 100%; }.room-messages { padding: 16px 12px; }.composer-wrap { padding: 12px; } }
+
+/* Keep every route inside the phone viewport. Navigation labels are wrapped so
+   the compact phone sidebar can show icons without forcing a wider layout. */
+html, body, #root { min-width: 0; max-width: 100%; overflow-x: hidden; }
+.workspace-shell, .workspace-main, .chat-workspace, .page-frame, .video-studio-page { min-width: 0; max-width: 100%; }
+.shell-nav-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+@media (max-width: 650px) {
+  .workspace-shell { width: 100%; max-width: 100vw; }
+  .workspace-sidebar { width: 56px; flex: 0 0 56px; min-width: 56px; }
+  .workspace-brand > span:not(.brand-mark),
+  .shell-nav-text,
+  .shell-account .account-copy,
+  .shell-logout { display: none; }
+  .shell-nav-item { width: 100%; min-width: 0; }
+  .workspace-main { width: calc(100vw - 56px); max-width: calc(100vw - 56px); }
+  .workspace-topbar, .studio-header, .new-conversation,
+  .conversation-header, .conversation-actions, .chat-composer { min-width: 0; max-width: 100%; }
+  .new-conversation input, .chat-composer textarea { min-width: 0; max-width: 100%; }
+  .conversation-header h2, .conversation-header small, .page-subtitle { overflow-wrap: anywhere; }
+  .chat-workspace-grid { min-width: 0; max-width: 100%; overflow: hidden; }
+}
 /* Inline auth feedback (replaces blocking alert() dialogs). */
 .auth-error { margin: 0; padding: 10px 12px; border: 1px solid #7a3a3a; border-radius: 8px; color: #ffc4c4; background: #2a1418; font-size: 12.5px; line-height: 1.5; }
 .auth-input:disabled, .auth-submit:disabled { opacity: .65; cursor: not-allowed; }

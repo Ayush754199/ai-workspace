@@ -12,17 +12,17 @@ const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         <div className="workspace-brand"><span className="brand-mark">✦</span><span>AI Workspace</span></div>
         <nav className="shell-nav">
           <p className="shell-nav-label">Workspace</p>
-          <NavLink className={navClass} to="/assistant"><span>✦</span> Assistant</NavLink>
-          <NavLink className={navClass} to="/dashboard"><span>⌁</span> Rooms</NavLink>
+          <NavLink className={navClass} to="/assistant"><span>✦</span><span className="shell-nav-text">Assistant</span></NavLink>
+          <NavLink className={navClass} to="/dashboard"><span>⌁</span><span className="shell-nav-text">Rooms</span></NavLink>
           <p className="shell-nav-label">Video</p>
-          <NavLink className={navClass} to="/video-studio" end><span>✦</span> Video Generation</NavLink>
-          <NavLink className={navClass} to="/video-studio/editor"><span>▣</span> Video Editing</NavLink>
-          <NavLink className={navClass} to="/images"><span>◈</span> Images</NavLink>
-          <NavLink className={navClass} to="/documents"><span>▤</span> Documents</NavLink>
-          <NavLink className={navClass} to="/office"><span>▦</span> Office</NavLink>
-          <NavLink className={navClass} to="/research"><span>◎</span> Research</NavLink>
+          <NavLink className={navClass} to="/video-studio" end><span>✦</span><span className="shell-nav-text">Video Generation</span></NavLink>
+          <NavLink className={navClass} to="/video-studio/editor"><span>▣</span><span className="shell-nav-text">Video Editing</span></NavLink>
+          <NavLink className={navClass} to="/images"><span>◈</span><span className="shell-nav-text">Images</span></NavLink>
+          <NavLink className={navClass} to="/documents"><span>▤</span><span className="shell-nav-text">Documents</span></NavLink>
+          <NavLink className={navClass} to="/office"><span>▦</span><span className="shell-nav-text">Office</span></NavLink>
+          <NavLink className={navClass} to="/research"><span>◎</span><span className="shell-nav-text">Research</span></NavLink>
           <p className="shell-nav-label shell-nav-label-spaced">Manage</p>
-          {user?.is_admin && <NavLink className={navClass} to="/admin"><span>⌘</span> Admin</NavLink>}
+          {user?.is_admin && <NavLink className={navClass} to="/admin"><span>⌘</span><span className="shell-nav-text">Admin</span></NavLink>}
         </nav>
         <div className="shell-account">
           <NavLink className={navClass} to="/profile">
