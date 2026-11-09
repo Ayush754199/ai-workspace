@@ -23,17 +23,19 @@ except ModuleNotFoundError:  # pragma: no cover - package import layout fallback
 
 def image_to_video(data: bytes, filename: str, prompt: str, *, space: str | None = None, api_name: str | None = None) -> dict[str, Any]:
     target_space = (space or settings.HF_IMAGE_TO_VIDEO_SPACE or "").strip()
-    if not target_space:
-        return {
-            "status": "disabled",
-            "message": (
-                "Image-to-video is not configured. An administrator must set "
-                "HF_IMAGE_TO_VIDEO_SPACE to an eligible Hugging Face Space."
-            ),
-        }
     credentials = get_provider_credentials("Hugging Face")
+    if not target_space:
+        try:
+            from backend.media_service import _ltx_video
+            return _ltx_video(prompt or "Animate this image with subtle natural motion", image_data=data)
+        except Exception as exc:
+            return {"status": "failed", "message": f"Image-to-video failed: {exc}"}
     if not credentials:
-        return {"status": "disabled", "message": "Hugging Face credentials are not configured."}
+        try:
+            from backend.media_service import _ltx_video
+            return _ltx_video(prompt or "Animate this image with subtle natural motion", image_data=data)
+        except Exception as exc:
+            return {"status": "disabled", "message": f"Hugging Face credentials are not configured; LTX fallback failed: {exc}"}
 
     from gradio_client import Client, handle_file
 

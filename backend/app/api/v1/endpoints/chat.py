@@ -326,8 +326,23 @@ async def image_studio(
                 raise RuntimeError("Image provider returned a non-image response")
             return response.content
         try:
-            output = generate("") if cloudflare_ready else call_with_key_rotation("Hugging Face", generate, endpoint=image_endpoint, payload={"operation": "image_generation"}, credentials=credentials)
-            QuotaService().commit(db, reservation.reservation_id, detail={"operation": "image_generation", "provider": "cloudflare" if cloudflare_ready else "huggingface"})
+            provider_name = "cloudflare" if cloudflare_ready else "huggingface"
+            try:
+                output = generate("") if cloudflare_ready else call_with_key_rotation("Hugging Face", generate, endpoint=image_endpoint, payload={"operation": "image_generation"}, credentials=credentials)
+            except Exception:
+                # The Cloudflare credential may be an R2 token rather than a
+                # Workers AI token. If HF is configured, try it before failing.
+                if not cloudflare_ready or not credentials or not image_endpoint:
+                    raise
+                def hf_fallback(token: str) -> bytes:
+                    response = requests.post(image_endpoint, headers={"Authorization": f"Bearer {token}"}, json={"inputs": prompt}, timeout=180)
+                    response.raise_for_status()
+                    if "application/json" in response.headers.get("content-type", ""):
+                        raise RuntimeError("Hugging Face returned a non-image response")
+                    return response.content
+                output = call_with_key_rotation("Hugging Face", hf_fallback, endpoint=image_endpoint, payload={"operation": "image_generation_fallback"}, credentials=credentials)
+                provider_name = "huggingface-fallback"
+            QuotaService().commit(db, reservation.reservation_id, detail={"operation": "image_generation", "provider": provider_name})
         except Exception as exc:
             QuotaService().release(db, reservation.reservation_id, failure=True)
             raise HTTPException(status_code=502, detail="Configured image generation provider failed") from exc

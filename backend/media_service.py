@@ -23,6 +23,43 @@ CLOUDINARY_API_SECRET = os.getenv("CLOUDINARY_API_SECRET", "").strip()
 HF_TEXT_TO_VIDEO_SPACE = os.getenv("HF_TEXT_TO_VIDEO_SPACE", "Wan-AI/Wan2.1").strip()
 HF_TOKEN = os.getenv("HF_TOKEN", "").strip() or os.getenv("HF_TOKEN_1", "").strip()
 HF_VIDEO_API_NAME = os.getenv("HF_TEXT_TO_VIDEO_API_NAME", "").strip() or None
+LTX_API_KEY = os.getenv("LTX_API_KEY", "").strip()
+LTX_API_BASE_URL = os.getenv("LTX_API_BASE_URL", "https://api.ltx.io").strip().rstrip("/")
+
+
+def _ltx_video(prompt: str, *, image_data: bytes | None = None, timeout: float = 180.0) -> dict[str, Any]:
+    """Use the official LTX async API when configured, with bounded polling."""
+    if not LTX_API_KEY:
+        return {"status": "disabled", "message": "LTX_API_KEY is not configured."}
+    endpoint = f"{LTX_API_BASE_URL}/v2/{'image-to-video' if image_data else 'text-to-video'}"
+    payload: dict[str, Any] = {
+        "prompt": prompt.strip(), "model": "ltx-2-3-fast", "duration": 6,
+        "resolution": "1280x720", "generate_audio": False,
+    }
+    if image_data is not None:
+        import base64
+        payload["image_uri"] = "data:image/png;base64," + base64.b64encode(image_data).decode("ascii")
+    headers = {"Authorization": f"Bearer {LTX_API_KEY}", "Content-Type": "application/json"}
+    response = requests.post(endpoint, headers=headers, json=payload, timeout=30)
+    response.raise_for_status()
+    job = response.json()
+    job_id = job.get("id")
+    if not job_id:
+        raise RuntimeError("LTX did not return a job id")
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        time.sleep(5)
+        status_response = requests.get(f"{endpoint}/{job_id}", headers={"Authorization": f"Bearer {LTX_API_KEY}"}, timeout=30)
+        status_response.raise_for_status()
+        state = status_response.json()
+        if state.get("status") == "completed":
+            video_url = ((state.get("result") or {}).get("video_url"))
+            if not video_url:
+                raise RuntimeError("LTX completed without a video URL")
+            return {"status": "completed", "source": "ltx", "output": video_url, "message": "Video generated successfully."}
+        if state.get("status") in {"failed", "cancelled"}:
+            raise RuntimeError((state.get("error") or "LTX video job failed"))
+    raise RuntimeError("LTX video generation timed out")
 
 
 def configure_cloudinary() -> dict[str, str]:
@@ -85,7 +122,7 @@ def generate_wan_video(prompt: str, *, space: str | None = None, api_name: str |
 
     token = os.getenv("HF_TOKEN", "").strip() or os.getenv("HF_TOKEN_1", "").strip() or _read_hf_token()
     if not token:
-        return {"status": "disabled", "message": "HF_TOKEN is not configured; video generation is unavailable."}
+        return _ltx_video(prompt, timeout=timeout)
 
     from gradio_client import Client
 
@@ -131,7 +168,11 @@ def generate_wan_video(prompt: str, *, space: str | None = None, api_name: str |
             payload={"prompt": prompt, "api_name": api_name},
             function="generate_wan_video",
         )
-        return {"status": "error", "message": f"Video generation failed: {exc}"}
+        try:
+            return _ltx_video(prompt, timeout=timeout)
+        except Exception as ltx_exc:
+            log_connection_failure(ltx_exc, endpoint=f"{LTX_API_BASE_URL}/v2/text-to-video", payload={"operation": "fallback"}, function="generate_ltx_video")
+            return {"status": "error", "message": f"Video generation failed: {exc}"}
 
 
 __all__ = [
