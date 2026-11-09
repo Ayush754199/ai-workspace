@@ -131,6 +131,7 @@ except Exception as exc:  # noqa: BLE001 - re-raised with deploy guidance
             "JWT_SECRET is missing or too short (minimum 32 characters).\n"
             "Local:   set it in backend/.env (see backend/.env.example).\n"
             "Render:  Dashboard -> your service -> Environment -> add JWT_SECRET.\n"
+            "         (changing render.yaml alone does NOT update an existing service)\n"
             "Generate: python -c \"import secrets; print(secrets.token_urlsafe(48))\"\n"
             f"Original error: {message}"
         ) from exc

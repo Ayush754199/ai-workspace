@@ -32,14 +32,24 @@ services:
     plan: free
     rootDir: backend
     buildCommand: pip install -r ../requirements.txt
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    # --log-level info is not cosmetic: without it Render's port scanner can miss
+    # the startup banner and abort with "No open ports detected" even though
+    # uvicorn is listening. --proxy-headers lets the app see the real client IP
+    # (the rate limiter and audit log depend on it) behind Render's proxy.
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --log-level info --proxy-headers --forwarded-allow-ips="*"
     healthCheckPath: /api/v1/health
     autoDeploy: true
     envVars:
-      # Required. `generateValue: true` makes Render create a strong random
-      # secret on first deploy and keep it stable across redeploys.
+      # Required, and it MUST come from the dashboard, never from this file:
+      # `generateValue: true` only applies when Render *creates* the service. On
+      # an existing service it is ignored, and Blueprint sync can leave the old
+      # short value (a 20-char placeholder) in place -- which then fails at
+      # startup with "JWT_SECRET is missing or too short".
+      #   Render -> Environment -> JWT_SECRET -> generate or paste 32+ characters.
+      #     python -c "import secrets; print(secrets.token_urlsafe(48))"
+      # `sync: false` keeps Render from overwriting whatever is stored there.
       - key: JWT_SECRET
-        generateValue: true
+        sync: false
 
       # Persistent database. Render injects the connection string; database.py
       # rewrites postgres:// -> postgresql+psycopg:// automatically.
