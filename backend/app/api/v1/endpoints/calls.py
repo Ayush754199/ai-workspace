@@ -86,6 +86,29 @@ async def list_calls(limit: int = Query(default=50, ge=1, le=100), current_user:
     return [public_call(item) async for item in cursor]
 
 
+@router.get("/availability")
+async def call_availability(
+    user_ids: str = Query(default="", max_length=1000),
+    current_user: User = Depends(get_current_user),
+):
+    """Return busy state for searched users without exposing call metadata."""
+    try:
+        requested = list(dict.fromkeys(int(value) for value in user_ids.split(",") if value.strip()))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="user_ids must be comma-separated integers") from exc
+    requested = [value for value in requested if value != int(current_user.id)][:100]
+    if not requested:
+        return {}
+    await mongo.verify_ready()
+    busy: dict[str, bool] = {str(value): False for value in requested}
+    cursor = mongo.calls.find({"participant_ids": {"$in": requested}, "status": {"$in": ["accepted", "active"]}}, {"participant_ids": 1})
+    async for call in cursor:
+        for participant_id in call.get("participant_ids", []):
+            if str(participant_id) in busy:
+                busy[str(participant_id)] = True
+    return busy
+
+
 @router.get("/{call_id}")
 async def read_call(call_id: str, current_user: User = Depends(get_current_user)):
     call = await get_call(call_id)

@@ -13,6 +13,7 @@ import AdminDashboard from "./pages/AdminDashboard";
 import Profile from "./pages/Profile";
 import { useAuth } from "./contexts/AuthContext";
 import { CallProvider } from "./calls/CallProvider";
+import Calls from "./pages/Calls";
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isLoading } = useAuth();
@@ -37,6 +38,7 @@ const App: React.FC = () => {
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           <Route path="/rooms" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+          <Route path="/calls" element={<ProtectedRoute><Calls /></ProtectedRoute>} />
           {/* Legacy room URLs should land on the default assistant experience. */}
           <Route path="/dashboard" element={<Navigate to="/assistant" replace />} />
           <Route path="/chat" element={<Navigate to="/assistant" replace />} />

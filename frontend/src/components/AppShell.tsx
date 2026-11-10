@@ -16,6 +16,7 @@ const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           <p className="shell-nav-label">Workspace</p>
           <NavLink className={navClass} to="/assistant"><span>✦</span><span className="shell-nav-text">Assistant</span></NavLink>
           <NavLink className={navClass} to="/rooms"><span>⌁</span><span className="shell-nav-text">Rooms</span></NavLink>
+          <NavLink className={navClass} to="/calls"><span>☎</span><span className="shell-nav-text">Calls</span></NavLink>
           <NavLink className={navClass} to="/images"><span>◈</span><span className="shell-nav-text">Images</span></NavLink>
           <NavLink className={navClass} to="/documents"><span>▤</span><span className="shell-nav-text">Documents</span></NavLink>
           <NavLink className={navClass} to="/office"><span>▦</span><span className="shell-nav-text">Office</span></NavLink>

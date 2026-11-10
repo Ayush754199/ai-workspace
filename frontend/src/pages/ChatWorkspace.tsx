@@ -573,7 +573,7 @@ const ChatWorkspace: React.FC = () => {
             </button>
             <h1>{activeTitle}</h1>
           </div>
-          <div className="cw-topbar-actions" />
+          <div className="cw-topbar-actions"><Link className="cw-ghost" to="/calls">☎ Voice / video call</Link></div>
         </header>
 
         <div className="cw-messages">

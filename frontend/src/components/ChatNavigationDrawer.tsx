@@ -58,6 +58,7 @@ const ChatNavigationDrawer: React.FC<Props> = ({
         <nav className="cw-drawer-links" aria-label="Workspace features">
           <button type="button" className={location.pathname === "/assistant" ? "active" : ""} onClick={() => openChat()}><span>▣</span><strong>Chat</strong></button>
           <Link to="/rooms" className={location.pathname === "/rooms" ? "active" : ""} onClick={onClose}><span>⌁</span><strong>Rooms</strong></Link>
+          <Link to="/calls" className={location.pathname === "/calls" ? "active" : ""} onClick={onClose}><span>☎</span><strong>Calls</strong></Link>
           <Link to="/images" onClick={onClose}><span>✦</span><strong>Images</strong></Link>
           <Link to="/documents" onClick={onClose}><span>▤</span><strong>Documents</strong></Link>
           <Link to="/office" onClick={onClose}><span>▦</span><strong>Office</strong></Link>

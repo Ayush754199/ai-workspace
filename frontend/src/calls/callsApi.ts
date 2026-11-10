@@ -7,6 +7,7 @@ export interface JoinCallResponse { server_url: string; participant_token: strin
 export const callsApi = {
   start: (token: string, participantIds: number[], callType: CallType) => apiRequest<CallRecord>(token, "/api/v1/calls", { method: "POST", body: JSON.stringify({ participant_ids: participantIds, call_type: callType, idempotency_key: crypto.randomUUID() }) }),
   list: (token: string) => apiRequest<CallRecord[]>(token, "/api/v1/calls"),
+  availability: (token: string, userIds: number[]) => apiRequest<Record<string, boolean>>(token, `/api/v1/calls/availability?user_ids=${userIds.join(",")}`),
   accept: (token: string, id: string) => apiRequest<CallRecord>(token, `/api/v1/calls/${id}/accept`, { method: "POST" }),
   reject: (token: string, id: string) => apiRequest<CallRecord>(token, `/api/v1/calls/${id}/reject`, { method: "POST" }),
   end: (token: string, id: string) => apiRequest<CallRecord>(token, `/api/v1/calls/${id}/end`, { method: "POST" }),
