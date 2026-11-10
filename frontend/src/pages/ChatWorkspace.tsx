@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { Attachment, ChatMessage, Conversation, chatV2 } from "../api/workspaceApi";
 import { imageApi } from "../api/workspaceApi";
 import renderMarkdown from "../components/Markdown";
 import VoiceControls from "../components/VoiceControls";
+import WorkspaceFeatureMenu from "../components/WorkspaceFeatureMenu";
 
 type ChatArtifact = { kind: "pdf" | "excel" | "code"; title: string; filename: string; content: string };
 
@@ -89,8 +90,8 @@ const ChatWorkspace: React.FC = () => {
   const [pendingDelete, setPendingDelete] = useState<{ id: number; title: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [notice, setNotice] = useState("");
-  const [featureMenuOpen, setFeatureMenuOpen] = useState(false);
   const [chatRoomsOpen, setChatRoomsOpen] = useState(false);
+  const [searchParams] = useSearchParams();
   const [artifactCopied, setArtifactCopied] = useState(false);
   const artifactFrames = useRef(new Map<number, HTMLIFrameElement>());
   const artifactView = useMemo(() => {
@@ -125,6 +126,13 @@ const ChatWorkspace: React.FC = () => {
     if (!token) return;
     loadConversations();
   }, [token, loadConversations]);
+
+  useEffect(() => {
+    const requestedId = Number(searchParams.get("conversation"));
+    if (requestedId > 0 && conversations.some((conversation) => conversation.id === requestedId)) {
+      setActiveId(requestedId);
+    }
+  }, [conversations, searchParams]);
 
   useEffect(() => {
     if (!token || activeId == null) {
@@ -476,6 +484,7 @@ const ChatWorkspace: React.FC = () => {
 
   return (
     <div className="cw-shell">
+      <WorkspaceFeatureMenu />
       <aside className={`cw-sidebar ${chatRoomsOpen ? "cw-sidebar-open" : ""}`}>
         <div className="cw-sidebar-head">
           <div className="cw-brand">
@@ -538,39 +547,8 @@ const ChatWorkspace: React.FC = () => {
             </button>
             <h1>{activeTitle}</h1>
           </div>
-          <div className="cw-topbar-actions">
-            <button
-              type="button"
-              className="cw-feature-toggle"
-              aria-label="Open chat features"
-              aria-expanded={featureMenuOpen}
-              onClick={() => setFeatureMenuOpen((open) => !open)}
-            >
-              <span className="cw-feature-bars" aria-hidden="true">☰</span>
-              <span>Features</span>
-            </button>
-          </div>
+          <div className="cw-topbar-actions" />
         </header>
-
-        {featureMenuOpen && (
-          <div className="cw-feature-menu" aria-label="Chat features">
-            <button type="button" className="selected" onClick={() => setFeatureMenuOpen(false)}>
-              <span>💬</span><strong>Chat</strong><small>Ask anything</small>
-            </button>
-            <Link to="/images" onClick={() => setFeatureMenuOpen(false)}>
-              <span>✦</span><strong>Images</strong><small>Generate or edit</small>
-            </Link>
-            <Link to="/documents" onClick={() => setFeatureMenuOpen(false)}>
-              <span>▤</span><strong>Documents</strong><small>Read and generate</small>
-            </Link>
-            <Link to="/office" onClick={() => setFeatureMenuOpen(false)}>
-              <span>▦</span><strong>Office</strong><small>Workspace tools</small>
-            </Link>
-            <Link to="/research" onClick={() => setFeatureMenuOpen(false)}>
-              <span>◎</span><strong>Research</strong><small>Live web sources</small>
-            </Link>
-          </div>
-        )}
 
         <div className="cw-messages">
           {loadingMessages && messages.length === 0 && (

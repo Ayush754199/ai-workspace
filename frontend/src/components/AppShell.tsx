@@ -1,6 +1,7 @@
 import React from "react";
 import { NavLink } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
+import WorkspaceFeatureMenu from "./WorkspaceFeatureMenu";
 
 const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, logout } = useAuth();
@@ -31,6 +32,7 @@ const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         </div>
       </aside>
     <main className="workspace-main">
+      <WorkspaceFeatureMenu />
       <button className="mobile-nav-toggle" type="button" aria-label={mobileNavOpen ? "Close navigation" : "Open navigation"} aria-expanded={mobileNavOpen} onClick={() => setMobileNavOpen((open) => !open)}>
         {mobileNavOpen ? "×" : "☰"}
       </button>
