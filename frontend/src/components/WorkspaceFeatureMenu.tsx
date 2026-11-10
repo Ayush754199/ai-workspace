@@ -52,6 +52,7 @@ const WorkspaceFeatureMenu: React.FC = () => {
             </div>
             <nav className="workspace-feature-links" aria-label="Workspace features">
               <button className={location.pathname === "/assistant" ? "active" : ""} type="button" onClick={() => openChat()}><span>💬</span><span><strong>Chat</strong><small>Ask anything</small></span></button>
+              <Link className={location.pathname === "/rooms" ? "active" : ""} to="/rooms" onClick={close}><span>⌁</span><span><strong>Rooms</strong><small>Team conversations</small></span></Link>
               <Link to="/images" onClick={close}><span>✦</span><span><strong>Images</strong><small>Generate or edit</small></span></Link>
               <Link to="/documents" onClick={close}><span>▤</span><span><strong>Documents</strong><small>Read and generate</small></span></Link>
               <Link to="/office" onClick={close}><span>▦</span><span><strong>Office</strong><small>Workspace tools</small></span></Link>
