@@ -17,6 +17,7 @@ from .providers import (
 )
 from .registry import MODEL_REGISTRY, ModelSpec
 from .quota import QuotaService
+from app.services.provider_budget import ProviderBudgetError
 
 
 class GatewayPolicyError(ValueError):
@@ -25,17 +26,6 @@ class GatewayPolicyError(ValueError):
 
 class GatewayUnavailableError(RuntimeError):
     pass
-
-
-def _flatten_conversation(conversation: list[dict]) -> str:
-    """Render stored turns into one prompt for providers without a message API."""
-    lines: list[str] = []
-    for turn in conversation[-24:]:
-        role = str(turn.get("role", "user")).capitalize()
-        content = str(turn.get("content", "")).strip()
-        if content:
-            lines.append(f"{role}: {content}")
-    return "\n\n".join(lines)
 
 
 def _flatten_conversation(conversation: list[dict]) -> str:
@@ -115,9 +105,25 @@ class AIGateway:
             ):
                 continue
             routes.append(Route(spec.provider, spec.model, True))
-        if capability in {"chat", "research", "multimodal"} and settings.MUSE_SPARK_VERIFIED and settings.MUSE_API_URL and settings.MUSE_API_KEY and settings.MUSE_SPARK_MODEL:
+        if (
+            capability in {"chat", "research", "multimodal"}
+            and settings.MUSE_SPARK_VERIFIED
+            and settings.MUSE_API_URL
+            and settings.MUSE_API_KEY
+            and settings.MUSE_SPARK_MODEL
+            and settings.MUSE_SPARK_REQUEST_COST_USD > 0
+            and settings.MUSE_SPARK_MONTHLY_USD > 0
+        ):
             routes.append(Route("muse_spark", settings.MUSE_SPARK_MODEL, False))
-        if capability == "research" and settings.CLOUDFLARE_RESEARCH_MODEL_VERIFIED and settings.CLOUDFLARE_ACCOUNT_ID and settings.CLOUDFLARE_API_TOKEN and settings.CLOUDFLARE_RESEARCH_MODEL:
+        if (
+            capability == "research"
+            and settings.CLOUDFLARE_RESEARCH_MODEL_VERIFIED
+            and settings.CLOUDFLARE_ACCOUNT_ID
+            and settings.CLOUDFLARE_API_TOKEN
+            and settings.CLOUDFLARE_RESEARCH_MODEL
+            and settings.CLOUDFLARE_RESEARCH_REQUEST_NEURONS > 0
+            and settings.CLOUDFLARE_DAILY_NEURON_LIMIT > 0
+        ):
             routes.append(Route("cloudflare", settings.CLOUDFLARE_RESEARCH_MODEL, False))
         # Stable sort: provider preference order first, registry order second.
         preference = self.preferences()
@@ -228,7 +234,7 @@ class AIGateway:
             routes = tuple(sorted(routes, key=lambda route: 0 if route.provider == preferred_provider else 1))
         quotas = QuotaService()
         last_error: Exception | None = None
-        for index, route in enumerate(routes):
+        for route in routes:
             quotas.rebind(db, reservation_id, provider=route.provider, model=route.model)
             try:
                 budget_reservation = None
@@ -249,6 +255,20 @@ class AIGateway:
                     commit_budget(db, budget_reservation.id, detail={"route": route.provider, "model": route.model})
                 quotas.commit(db, reservation_id, actual_units=1, detail={"capability": capability, "route": route.provider})
                 return text, route
+            except ProviderBudgetError as exc:
+                # A paid/provider-specific cap must not consume the user's
+                # generic quota or prevent a compatible fallback route.
+                if budget_reservation:
+                    from app.services.provider_budget import release as release_budget
+                    release_budget(db, budget_reservation.id, detail={"failure": str(exc)[:160]})
+                last_error = exc
+                continue
+            except GatewayUnavailableError as exc:
+                if budget_reservation:
+                    from app.services.provider_budget import release as release_budget
+                    release_budget(db, budget_reservation.id, detail={"failure": str(exc)[:160]})
+                last_error = exc
+                continue
             except GatewayProviderError as exc:
                 if budget_reservation:
                     from app.services.provider_budget import release as release_budget
