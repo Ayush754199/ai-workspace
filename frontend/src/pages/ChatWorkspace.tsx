@@ -6,6 +6,7 @@ import { imageApi } from "../api/workspaceApi";
 import renderMarkdown from "../components/Markdown";
 import VoiceControls from "../components/VoiceControls";
 import ChatNavigationDrawer from "../components/ChatNavigationDrawer";
+import { CallIcon } from "../components/CallIcon";
 
 type ChatArtifact = { kind: "pdf" | "excel" | "code"; title: string; filename: string; content: string };
 
@@ -573,7 +574,7 @@ const ChatWorkspace: React.FC = () => {
             </button>
             <h1>{activeTitle}</h1>
           </div>
-          <div className="cw-topbar-actions"><Link className="cw-ghost" to="/calls">☎ Voice / video call</Link></div>
+          <div className="cw-topbar-actions"><Link className="cw-ghost" to="/calls"><CallIcon type="audio" /> Call a user</Link></div>
         </header>
 
         <div className="cw-messages">

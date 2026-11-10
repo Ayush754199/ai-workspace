@@ -77,8 +77,13 @@ async def ensure_call_indexes() -> None:
 
 
 def require_livekit() -> None:
-    if not (settings.LIVEKIT_URL and settings.LIVEKIT_API_KEY and settings.LIVEKIT_API_SECRET):
-        raise HTTPException(status_code=503, detail="LiveKit calling is not configured on this server")
+    missing = [name for name, value in (
+        ("LIVEKIT_URL", settings.LIVEKIT_URL),
+        ("LIVEKIT_API_KEY", settings.LIVEKIT_API_KEY),
+        ("LIVEKIT_API_SECRET", settings.LIVEKIT_API_SECRET),
+    ) if not value]
+    if missing:
+        raise HTTPException(status_code=503, detail=f"LiveKit calling is not configured on this server. Missing server variables: {', '.join(missing)}")
 
 
 async def create_join_token(call: dict[str, Any], user: User) -> str:

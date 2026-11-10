@@ -7,6 +7,7 @@ import { chatApi, type ChatMessage, type ChatRoom, type RoomInvitation, type Cha
 import { runImageStudio } from "../api/imageApi";
 import { useAuth } from "../contexts/AuthContext";
 import { useCalls } from "../calls/CallProvider";
+import { CallIcon } from "../components/CallIcon";
 
 const Dashboard: React.FC = () => {
   const { user, token } = useAuth();
@@ -161,7 +162,7 @@ const Dashboard: React.FC = () => {
 
   if (!user) return null;
   return <AppShell><div className="chat-workspace">
-    {selectedRoom && <div className="call-launcher"><span>Call members in {selectedRoom.name}</span><button onClick={() => void startCall(selectedRoom.member_details.filter((member) => member.id !== user.id).map((member) => member.id), "audio")}>Audio call</button><button onClick={() => void startCall(selectedRoom.member_details.filter((member) => member.id !== user.id).map((member) => member.id), "video")}>Video call</button></div>}
+    {selectedRoom && <div className="call-launcher"><span>Call members in {selectedRoom.name}</span><button onClick={() => void startCall(selectedRoom.member_details.filter((member) => member.id !== user.id).map((member) => member.id), "audio")}><CallIcon type="audio" /> Voice</button><button onClick={() => void startCall(selectedRoom.member_details.filter((member) => member.id !== user.id).map((member) => member.id), "video")}><CallIcon type="video" /> Video</button></div>}
     {invitations.length > 0 && <section className="room-invitations" aria-label="Pending room invitations"><strong>Pending room invitations</strong>{invitations.map((invitation) => <div className="room-invitation" key={invitation.id}><span><b>{invitation.room_name}</b>{invitation.inviter_name ? ` · invited by ${invitation.inviter_name}` : ""}</span><span className="room-invitation-actions"><button onClick={() => void acceptInvitation(invitation)}>Accept</button><button onClick={() => void declineInvitation(invitation)}>Cancel</button></span></div>)}</section>}
     <header className="workspace-topbar"><div><p className="eyebrow">AI Workspace</p><h1>{imageWorkspaceRequested ? "Image workspace" : "Chat"}</h1><p className="page-subtitle">Conversations, files and image workflows in one place.</p></div><form className="new-conversation" onSubmit={createRoom}><input value={newRoomName} onChange={(event) => setNewRoomName(event.target.value)} placeholder="New conversation name" aria-label="New conversation name" /><button className="secondary-action">＋ New</button></form></header>
     <div className={`chat-workspace-grid ${showRooms ? "rooms-visible" : "chat-visible"}`}>
