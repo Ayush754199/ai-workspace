@@ -58,9 +58,9 @@ class SendRequest(BaseModel):
     content: str = Field(default="", max_length=32_000)
     model: str | None = None
     attachment_ids: list[int] = Field(default_factory=list)
-    # Fresh chat sessions use web search by default; the UI may still send an
-    # explicit value when a future preference or admin policy overrides it.
-    web_search: bool = True
+    # Ordinary chat must not spend search quota. Current-information intent is
+    # promoted to research below, while the UI can explicitly enable search.
+    web_search: bool = False
 
 
 class RegenerateRequest(BaseModel):
@@ -68,7 +68,7 @@ class RegenerateRequest(BaseModel):
     # ``regenerate`` reads payload.web_search to decide its system prompt; the
     # field was missing from the model, so every regenerate raised AttributeError.
     # Keep regeneration consistent with a newly opened chat.
-    web_search: bool = True
+    web_search: bool = False
 
 
 def _conversation(db: Session, user: User, conversation_id: int) -> AiConversation:
@@ -253,8 +253,13 @@ async def send_message(
     ]
     assessment = assess_intent(content, conversation=prior_turns, attachments=attachment_summary)
     route_preference = preferred_providers(assessment)[0]
+    research_requested = payload.web_search or assessment.needs_current_information
+    # ``conversation.model`` records the last route for observability; it is not
+    # an implicit pin. Auto/follow-up turns must be allowed to switch providers
+    # when the new intent benefits from a different capability.
+    requested_model = payload.model if payload.model and payload.model != "auto" else None
     try:
-        resolved = resolve_model(db, payload.model or conversation.model, preferred_provider=route_preference)
+        resolved = resolve_model(db, requested_model, preferred_provider=route_preference)
     except GatewayUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
@@ -297,7 +302,7 @@ async def send_message(
     system_prompt = conversation.system_prompt or DEFAULT_SYSTEM_PROMPT
     prompt = conversation_prompt(history, system_prompt=conversation.system_prompt, extra_context=attachment_context)
     citations: list[dict] = []
-    if payload.web_search:
+    if research_requested:
         try:
             from app.services.research import SearchUnavailable, research
 
@@ -351,14 +356,14 @@ async def send_message(
         )
     except (ChatConcurrencyError, GatewayUnavailableError, GatewayProviderError) as exc:
         quotas.release(db, reservation.reservation_id, failure=True)
-        if payload.web_search and "research_quota" in locals():
+        if research_requested and "research_quota" in locals():
             quotas.release(db, research_quota.reservation_id, failure=True)
         db.commit()
         status = 429 if isinstance(exc, ChatConcurrencyError) else 503
         raise HTTPException(status_code=status, detail=str(exc)) from exc
     except BaseException:
         quotas.release(db, reservation.reservation_id, failure=True)
-        if payload.web_search and "research_quota" in locals():
+        if research_requested and "research_quota" in locals():
             quotas.release(db, research_quota.reservation_id, failure=True)
         db.commit()
         raise
@@ -381,7 +386,7 @@ async def send_message(
     conversation.model = f"{provider_name}:{model_name}"
     conversation.provider = provider_name
     conversation.updated_at = datetime.now(timezone.utc)
-    if payload.web_search and "research_quota" in locals():
+    if research_requested and "research_quota" in locals():
         quotas.commit(db, research_quota.reservation_id, detail={"service": "web_research", "sources": len(citations)})
     db.commit()
     db.refresh(reply)
@@ -412,12 +417,17 @@ async def regenerate(
     )
     if not history:
         raise HTTPException(status_code=400, detail="Nothing to regenerate from")
+    prior_turns = [{"role": row.role, "content": row.content} for row in history]
+    last_user_prompt = next((row.content for row in reversed(history) if row.role == "user"), "")
+    assessment = assess_intent(last_user_prompt, conversation=prior_turns)
+    route_preference = preferred_providers(assessment)[0]
+    research_requested = payload.web_search or assessment.needs_current_information
     try:
-        resolved = resolve_model(db, conversation.model)
+        resolved = resolve_model(db, None, preferred_provider=route_preference)
     except GatewayUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     system_prompt = conversation.system_prompt or DEFAULT_SYSTEM_PROMPT
-    if payload.web_search:
+    if research_requested:
         system_prompt += (
             " When the user asks for a report, document, spreadsheet, story, multi-page content or code, "
             "put the full artifact in one fenced block using file_pdf:Title:report.html, file_excel:Title:data.csv, "
@@ -434,7 +444,6 @@ async def regenerate(
     except QuotaError as exc:
         raise HTTPException(status_code=429, detail=str(exc)) from exc
     prompt = conversation_prompt(history, system_prompt=conversation.system_prompt)
-    gateway = AIGateway()
     try:
         text, used_provider, used_model = await generate_reply(
             db,
@@ -443,6 +452,7 @@ async def regenerate(
             system_prompt=conversation.system_prompt or DEFAULT_SYSTEM_PROMPT,
             capability="chat",
             reservation_id=reservation.reservation_id,
+            preferred_provider=route_preference,
         )
         route = type("RouteView", (), {"provider": used_provider, "model": used_model})()
     except (ChatConcurrencyError, GatewayUnavailableError, GatewayProviderError) as exc:
@@ -483,12 +493,14 @@ def stream_message(
     ]
     assessment = assess_intent(content, conversation=prior_turns, attachments=attachment_summary)
     route_preference = preferred_providers(assessment)[0]
+    research_requested = payload.web_search or assessment.needs_current_information
+    requested_model = payload.model if payload.model and payload.model != "auto" else None
     try:
-        resolved = resolve_model(db, payload.model or conversation.model, preferred_provider=route_preference)
+        resolved = resolve_model(db, requested_model, preferred_provider=route_preference)
     except GatewayUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     system_prompt = conversation.system_prompt or DEFAULT_SYSTEM_PROMPT
-    if payload.web_search:
+    if research_requested:
         system_prompt += (
             " For report/document/spreadsheet/story/multi-page/code requests, emit the complete artifact in a single fenced block. "
             "Use file_pdf:Title:report.html, file_excel:Title:data.csv, or file_code:Title:main.py as the header after opening backticks; "
@@ -529,7 +541,7 @@ def stream_message(
         citations: list[dict] = []
         research_reservation_id = None
         chat_reservation_id = None
-        if not payload.web_search:
+        if not research_requested:
             with SessionLocal() as quota_session:
                 try:
                     chat_reservation = QuotaService().reserve(
@@ -542,7 +554,7 @@ def stream_message(
                     yield f"data: {json.dumps({'error': str(exc)})}\n\n"
                     yield "data: [DONE]\n\n"
                     return
-        if payload.web_search:
+        if research_requested:
             with SessionLocal() as quota_session:
                 quota_service = QuotaService()
                 try:
@@ -605,7 +617,7 @@ def stream_message(
             yield "data: [DONE]\n\n"
             return
         system_prompt = conversation.system_prompt or DEFAULT_SYSTEM_PROMPT
-        if payload.web_search:
+        if research_requested:
             system_prompt += (
                 " For report/document/spreadsheet/story/multi-page/code requests, output the entire artifact in one fenced block "
                 "with file_pdf:Title:report.html, file_excel:Title:data.csv, or file_code:Title:main.py after opening backticks; "
@@ -618,7 +630,7 @@ def stream_message(
                 stream = getattr(provider, "stream", None)
                 try:
                     if callable(stream):
-                        if payload.web_search and not analysis_started:
+                        if research_requested and not analysis_started:
                             analysis_started = True
                             yield f"data: {json.dumps({'status': 'analyzing', 'label': 'Analyzing sources'})}\n\n"
                         for chunk in stream(stream_prompt, system_prompt=system_prompt, model=route.model):
@@ -628,7 +640,7 @@ def stream_message(
                         if not used_provider:
                             raise GatewayProviderError("Provider returned an empty stream")
                     else:
-                        if payload.web_search and not analysis_started:
+                        if research_requested and not analysis_started:
                             analysis_started = True
                             yield f"data: {json.dumps({'status': 'analyzing', 'label': 'Analyzing sources'})}\n\n"
                         text = provider.generate(stream_prompt, system_prompt=system_prompt, model=route.model)
@@ -661,10 +673,10 @@ def stream_message(
                     provider=used_provider, model=used_model, status="streamed", meta={"request_id": request_id},
                 )
                 reply.citations = citations
-                reply.meta = {"request_id": request_id, "web_search": payload.web_search}
+                reply.meta = {"request_id": request_id, "web_search": research_requested}
                 session.add(reply)
                 if chat_reservation_id:
-                    QuotaService().commit(session, chat_reservation_id, detail={"capability": "chat", "conversation": conversation.id, "route": used_provider, "web_search": payload.web_search})
+                    QuotaService().commit(session, chat_reservation_id, detail={"capability": "chat", "conversation": conversation.id, "route": used_provider, "web_search": research_requested})
                 if research_reservation_id:
                     QuotaService().commit(session, research_reservation_id, detail={"service": "web_research", "sources": len(citations)})
                 conv = session.query(AiConversation).filter(AiConversation.id == conversation.id).first()
