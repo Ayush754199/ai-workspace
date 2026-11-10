@@ -15,19 +15,63 @@ MAX_CHARS = 200_000
 
 
 def extract_pdf_text(data: bytes, *, max_chars: int = MAX_CHARS) -> str:
-    from pypdf import PdfReader
+    # PyMuPDF gives stable page boundaries and is more reliable for mixed PDF
+    # layouts. Keep pypdf as a compatibility fallback for minimal installs.
+    try:
+        import fitz
 
-    reader = PdfReader(io.BytesIO(data))
-    chunks: list[str] = []
-    total = 0
-    for page in reader.pages:
-        text = page.extract_text() or ""
-        if text:
-            chunks.append(text)
-            total += len(text)
+        document = fitz.open(stream=data, filetype="pdf")
+        chunks: list[str] = []
+        total = 0
+        for index, page in enumerate(document, start=1):
+            text = (page.get_text("text") or "").strip()
+            if text:
+                block = f"## Page {index}\n{text}"
+                chunks.append(block)
+                total += len(block)
             if total >= max_chars:
                 break
-    return "\n\n".join(chunks).strip()[:max_chars]
+        return "\n\n".join(chunks).strip()[:max_chars]
+    except ImportError:
+        from pypdf import PdfReader
+
+        chunks = []
+        total = 0
+        for index, page in enumerate(PdfReader(io.BytesIO(data)).pages, start=1):
+            text = (page.extract_text() or "").strip()
+            if text:
+                block = f"## Page {index}\n{text}"
+                chunks.append(block)
+                total += len(block)
+            if total >= max_chars:
+                break
+        return "\n\n".join(chunks).strip()[:max_chars]
+
+
+def extract_pdf_ocr(data: bytes, *, max_chars: int = MAX_CHARS) -> str:
+    """OCR scanned pages when a local OCR engine or configured vision model exists."""
+    try:
+        import fitz
+    except ImportError:
+        return ""
+    parts: list[str] = []
+    for index, page in enumerate(fitz.open(stream=data, filetype="pdf"), start=1):
+        if page.get_text("text").strip():
+            continue
+        pixmap = page.get_pixmap(matrix=fitz.Matrix(1.5, 1.5), alpha=False)
+        image_data = pixmap.tobytes("png")
+        text = ""
+        try:
+            import pytesseract
+            from PIL import Image
+            text = pytesseract.image_to_string(Image.open(io.BytesIO(image_data))).strip()
+        except (ImportError, OSError):
+            text = ocr_image(image_data).strip()
+        if text:
+            parts.append(f"## Page {index} (OCR)\n{text}")
+        if sum(len(part) for part in parts) >= max_chars:
+            break
+    return "\n\n".join(parts)[:max_chars]
 
 
 def pdf_page_count(data: bytes) -> int:

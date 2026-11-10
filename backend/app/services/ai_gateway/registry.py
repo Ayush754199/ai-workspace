@@ -40,6 +40,9 @@ MODEL_REGISTRY = (
         "openrouter", "openrouter/free", True, True, frozenset({"chat"}),
         availability="available", verified_at=datetime.now(timezone.utc),
     ),
+    ModelSpec("muse_spark", "configured-muse-spark", False, None, frozenset({"chat", "research", "multimodal"}), restrictions=("requires private endpoint, credentials, and admin verification",)),
+    ModelSpec("muse_image", "configured-muse-image", False, None, frozenset({"image"}), restrictions=("requires private image endpoint, credentials, and admin verification",)),
+    ModelSpec("cloudflare", "configured-workers-ai", False, None, frozenset({"research", "image"}), restrictions=("requires account quota and model verification",)),
 )
 
 

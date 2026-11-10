@@ -29,7 +29,7 @@ const Register: React.FC = () => {
       <div className="auth-glow auth-glow-one" /><div className="auth-glow auth-glow-two" />
       <div className="auth-card">
         <div className="auth-brand"><span>✦</span><div><strong>AI Workspace</strong><small>Secure creative workspace</small></div></div>
-        <div className="auth-heading"><p className="eyebrow">Get started</p><h2>Create your workspace account</h2><p>Bring conversations, images and video projects together.</p></div>
+        <div className="auth-heading"><p className="eyebrow">Get started</p><h2>Create your workspace account</h2><p>Bring conversations, images and documents together.</p></div>
         <form onSubmit={handleSubmit} className="auth-form">
           <div>
             <label className="auth-label">

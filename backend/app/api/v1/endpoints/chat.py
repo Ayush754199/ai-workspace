@@ -336,6 +336,27 @@ async def image_studio(
         QuotaService().release(db, reservation.reservation_id, failure=True)
         raise HTTPException(status_code=403, detail="image_generation is disabled for this user")
 
+    if settings.IMAGE_ORCHESTRATION_ENABLED:
+        from app.services.image_orchestrator import ImageOrchestrationError, generate as orchestrate_image
+
+        try:
+            result = orchestrate_image(
+                db=db,
+                request_id=f"{request_id}:provider",
+                prompt=prompt,
+                image=uploaded_data,
+                mime_type=image.content_type if image is not None else "image/png",
+            )
+            QuotaService().commit(
+                db,
+                reservation.reservation_id,
+                detail={"operation": "image_editing" if image is not None else "image_generation", "provider": result.provider, "model": result.model},
+            )
+            return StreamingResponse(io.BytesIO(result.data), media_type="image/png")
+        except ImageOrchestrationError as exc:
+            QuotaService().release(db, reservation.reservation_id, failure=True)
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
     credentials = get_provider_credentials("Hugging Face")
     gemini_credentials = get_provider_credentials("Gemini")
     if not gemini_credentials and settings.GEMINI_API_KEY != "default-test-key":

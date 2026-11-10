@@ -208,14 +208,17 @@ def research(question: str, *, db=None, user=None, limit: int = 6, snippets_only
             generate_reply(
                 db, user_id=user.id, prompt=prompt,
                 system_prompt="You are a careful research assistant. Never cite a source you were not given.",
-                capability="chat",
+                capability="research",
+                reservation_id=analysis_reservation.reservation_id,
+                preferred_provider="muse_spark",
             )
         )
         payload["answer"] = answer
         payload["provider"] = provider
         payload["model"] = model
         # Analysis is a separate daily quota; it has no Tavily credits of its own.
-        QuotaService().commit(db, analysis_reservation.reservation_id, detail={"service": "web_research", "sources": len(sources)})
+        # The gateway commits the already-reserved research unit after the
+        # provider response, so the route and usage log remain consistent.
     except Exception as exc:
         _release(db, analysis_reservation)
         payload["error"] = str(exc)

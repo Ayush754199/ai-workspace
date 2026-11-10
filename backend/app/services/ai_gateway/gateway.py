@@ -7,9 +7,11 @@ from backend.key_rotator import get_provider_credentials
 from sqlalchemy.orm import Session
 from .providers import (
     GatewayProviderError,
+    CloudflareGatewayProvider,
     GeminiGatewayProvider,
     GroqGatewayProvider,
     HuggingFaceGatewayProvider,
+    MuseSparkGatewayProvider,
     MockProvider,
     OpenRouterProvider,
 )
@@ -113,6 +115,10 @@ class AIGateway:
             ):
                 continue
             routes.append(Route(spec.provider, spec.model, True))
+        if capability in {"chat", "research", "multimodal"} and settings.MUSE_SPARK_VERIFIED and settings.MUSE_API_URL and settings.MUSE_API_KEY and settings.MUSE_SPARK_MODEL:
+            routes.append(Route("muse_spark", settings.MUSE_SPARK_MODEL, False))
+        if capability == "research" and settings.CLOUDFLARE_RESEARCH_MODEL_VERIFIED and settings.CLOUDFLARE_ACCOUNT_ID and settings.CLOUDFLARE_API_TOKEN and settings.CLOUDFLARE_RESEARCH_MODEL:
+            routes.append(Route("cloudflare", settings.CLOUDFLARE_RESEARCH_MODEL, False))
         # Stable sort: provider preference order first, registry order second.
         preference = self.preferences()
         routes.sort(key=lambda route: preference.index(route.provider) if route.provider in preference else len(preference))
@@ -165,9 +171,13 @@ class AIGateway:
                 settings.GROQ_MODEL or route.model,
                 timeout=settings.AI_REQUEST_TIMEOUT_SECONDS,
             )
+        if route.provider == "muse_spark":
+            return MuseSparkGatewayProvider(settings.MUSE_API_URL, settings.MUSE_API_KEY, settings.MUSE_SPARK_MODEL, timeout=settings.AI_REQUEST_TIMEOUT_SECONDS)
+        if route.provider == "cloudflare":
+            return CloudflareGatewayProvider(settings.CLOUDFLARE_ACCOUNT_ID, settings.CLOUDFLARE_API_TOKEN, settings.CLOUDFLARE_RESEARCH_MODEL, timeout=settings.AI_REQUEST_TIMEOUT_SECONDS)
         raise GatewayUnavailableError(f"Provider adapter not enabled for {route.provider}")
 
-    def generate(self, prompt: str, *, system_prompt: str | None = None, capability: str = "chat", conversation: list[dict] | None = None) -> tuple[str, Route]:
+    def generate(self, prompt: str, *, system_prompt: str | None = None, capability: str = "chat", conversation: list[dict] | None = None, preferred_provider: str | None = None) -> tuple[str, Route]:
         if conversation:
             prompt = _flatten_conversation(conversation)
         routes = self.eligible_routes(capability)
@@ -175,6 +185,8 @@ class AIGateway:
             routes = (Route("mock", "mock-chat"),)
         if not routes:
             raise GatewayUnavailableError("No configured eligible free AI provider is available")
+        if preferred_provider:
+            routes = tuple(sorted(routes, key=lambda route: 0 if route.provider == preferred_provider else 1))
         last_error: Exception | None = None
         for route in routes:
             try:
@@ -197,6 +209,7 @@ class AIGateway:
         prompt: str,
         system_prompt: str | None = None,
         capability: str = "chat",
+        preferred_provider: str | None = None,
     ) -> tuple[str, Route]:
         """Generate through already-reserved quota, with route-by-route fallback.
 
@@ -211,17 +224,35 @@ class AIGateway:
             raise GatewayUnavailableError(
                 "No provider is currently available. An administrator must enable a free provider."
             )
+        if preferred_provider:
+            routes = tuple(sorted(routes, key=lambda route: 0 if route.provider == preferred_provider else 1))
         quotas = QuotaService()
         last_error: Exception | None = None
         for index, route in enumerate(routes):
-            if index:
-                quotas.rebind(db, reservation_id, provider=route.provider, model=route.model)
+            quotas.rebind(db, reservation_id, provider=route.provider, model=route.model)
             try:
+                budget_reservation = None
+                if route.provider == "muse_spark":
+                    from app.services.provider_budget import reserve as reserve_budget
+                    if settings.MUSE_SPARK_REQUEST_COST_USD <= 0:
+                        raise GatewayUnavailableError("Muse Spark billing cost is not configured; route is disabled")
+                    budget_reservation = reserve_budget(db, request_id=f"{reservation_id}:muse", provider="muse_spark", bucket="spark", period="monthly", units=settings.MUSE_SPARK_REQUEST_COST_USD)
+                elif route.provider == "cloudflare":
+                    from app.services.provider_budget import reserve as reserve_budget
+                    if settings.CLOUDFLARE_RESEARCH_REQUEST_NEURONS <= 0:
+                        raise GatewayUnavailableError("Cloudflare research neuron cost is not configured; route is disabled")
+                    budget_reservation = reserve_budget(db, request_id=f"{reservation_id}:cloudflare", provider="cloudflare", bucket="research", period="daily", units=settings.CLOUDFLARE_RESEARCH_REQUEST_NEURONS)
                 result = self.provider(route).generate(prompt, system_prompt=system_prompt, model=route.model)
                 text = result.text if hasattr(result, "text") else str(result)
+                if budget_reservation:
+                    from app.services.provider_budget import commit as commit_budget
+                    commit_budget(db, budget_reservation.id, detail={"route": route.provider, "model": route.model})
                 quotas.commit(db, reservation_id, actual_units=1, detail={"capability": capability, "route": route.provider})
                 return text, route
             except GatewayProviderError as exc:
+                if budget_reservation:
+                    from app.services.provider_budget import release as release_budget
+                    release_budget(db, budget_reservation.id, detail={"failure": str(exc)[:160]})
                 last_error = exc
                 if exc.uncertain:
                     quotas.mark_uncertain(db, reservation_id)
@@ -229,6 +260,12 @@ class AIGateway:
                 if not exc.retryable:
                     quotas.release(db, reservation_id, failure=True)
                     raise
+            except Exception as exc:
+                if budget_reservation:
+                    from app.services.provider_budget import release as release_budget
+                    release_budget(db, budget_reservation.id, detail={"failure": str(exc)[:160]})
+                quotas.release(db, reservation_id, failure=True)
+                raise GatewayUnavailableError(str(exc)) from exc
         quotas.release(db, reservation_id, failure=True)
         raise GatewayUnavailableError("All eligible providers failed transiently") from last_error
 

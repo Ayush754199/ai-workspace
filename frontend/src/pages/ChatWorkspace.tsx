@@ -578,7 +578,6 @@ const ChatWorkspace: React.FC = () => {
             <button className={chatMode === "image" ? "selected" : ""} type="button" onClick={() => { setChatMode("image"); setFeatureMenuOpen(false); }}>
               <span>✦</span><strong>Image</strong><small>Generate or edit</small>
             </button>
-            <Link to="/video-studio" onClick={() => setFeatureMenuOpen(false)}><span>▶</span><strong>Video</strong><small>Create videos</small></Link>
             <Link to="/documents" onClick={() => setFeatureMenuOpen(false)}><span>▤</span><strong>Documents</strong><small>Read and generate</small></Link>
             <Link to="/office" onClick={() => setFeatureMenuOpen(false)}><span>▦</span><strong>Office</strong><small>Workspace tools</small></Link>
             <Link to="/research" onClick={() => setFeatureMenuOpen(false)}><span>◎</span><strong>Research</strong><small>Deep research</small></Link>

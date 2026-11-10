@@ -27,7 +27,7 @@ const Login: React.FC = () => {
       <div className="auth-glow auth-glow-one" /><div className="auth-glow auth-glow-two" />
       <div className="auth-card">
         <div className="auth-brand"><span>✦</span><div><strong>AI Workspace</strong><small>Secure creative workspace</small></div></div>
-        <div className="auth-heading"><p className="eyebrow">Welcome back</p><h2>Sign in to your workspace</h2><p>Continue your conversations, images and video projects.</p></div>
+        <div className="auth-heading"><p className="eyebrow">Welcome back</p><h2>Sign in to your workspace</h2><p>Continue your conversations, images and documents.</p></div>
         <form onSubmit={handleSubmit} className="auth-form" noValidate>
           <div>
             <label className="auth-label" htmlFor="login-identifier">

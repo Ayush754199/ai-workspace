@@ -33,6 +33,7 @@ from app.services.chat_service import (
     limiter,
     resolve_model,
 )
+from app.services.intelligent_orchestrator import assess_intent, preferred_providers
 from app.services.ai_gateway.quota import QuotaError, QuotaExhausted, QuotaService
 from app.core.database import SessionLocal
 
@@ -246,8 +247,14 @@ async def send_message(
     attachment_context, attachment_summary = _attachment_context(db, user, payload.attachment_ids)
     if not content and not attachment_context:
         raise HTTPException(status_code=400, detail="Write a message or attach a file")
+    prior_turns = [
+        {"role": row.role, "content": row.content}
+        for row in db.query(AiMessage).filter(AiMessage.conversation_id == conversation.id).order_by(AiMessage.id.asc()).limit(24).all()
+    ]
+    assessment = assess_intent(content, conversation=prior_turns, attachments=attachment_summary)
+    route_preference = preferred_providers(assessment)[0]
     try:
-        resolved = resolve_model(db, payload.model or conversation.model)
+        resolved = resolve_model(db, payload.model or conversation.model, preferred_provider=route_preference)
     except GatewayUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
@@ -339,6 +346,8 @@ async def send_message(
             prompt=prompt,
             system_prompt=system_prompt,
             capability="chat",
+            reservation_id=reservation.reservation_id,
+            preferred_provider=route_preference,
         )
     except (ChatConcurrencyError, GatewayUnavailableError, GatewayProviderError) as exc:
         quotas.release(db, reservation.reservation_id, failure=True)
@@ -363,7 +372,7 @@ async def send_message(
         model=model_name,
         status="complete",
         citations=citations,
-        meta={"request_id": request_id},
+        meta={"request_id": request_id, "routing": {"capability": assessment.capability, "complexity": assessment.complexity, "reasons": list(assessment.reasons), "preferred_provider": route_preference}},
         attachments=[],
     )
     db.add(reply)
@@ -372,7 +381,6 @@ async def send_message(
     conversation.model = f"{provider_name}:{model_name}"
     conversation.provider = provider_name
     conversation.updated_at = datetime.now(timezone.utc)
-    quotas.commit(db, reservation.reservation_id, detail={"capability": "chat", "conversation": conversation.id, "route": provider_name})
     if payload.web_search and "research_quota" in locals():
         quotas.commit(db, research_quota.reservation_id, detail={"service": "web_research", "sources": len(citations)})
     db.commit()
@@ -434,6 +442,7 @@ async def regenerate(
             prompt=prompt,
             system_prompt=conversation.system_prompt or DEFAULT_SYSTEM_PROMPT,
             capability="chat",
+            reservation_id=reservation.reservation_id,
         )
         route = type("RouteView", (), {"provider": used_provider, "model": used_model})()
     except (ChatConcurrencyError, GatewayUnavailableError, GatewayProviderError) as exc:
@@ -444,7 +453,6 @@ async def regenerate(
     target.provider = route.provider
     target.model = route.model
     target.status = "complete"
-    quotas.commit(db, reservation.reservation_id, detail={"capability": "chat", "regenerate": target.id})
     db.commit()
     db.refresh(target)
     return {"message": _serialize_message(target)}
@@ -469,8 +477,14 @@ def stream_message(
     attachment_context, attachment_summary = _attachment_context(db, user, payload.attachment_ids)
     if not content and not attachment_context:
         raise HTTPException(status_code=400, detail="Write a message or attach a file")
+    prior_turns = [
+        {"role": row.role, "content": row.content}
+        for row in db.query(AiMessage).filter(AiMessage.conversation_id == conversation.id).order_by(AiMessage.id.asc()).limit(24).all()
+    ]
+    assessment = assess_intent(content, conversation=prior_turns, attachments=attachment_summary)
+    route_preference = preferred_providers(assessment)[0]
     try:
-        resolved = resolve_model(db, payload.model or conversation.model)
+        resolved = resolve_model(db, payload.model or conversation.model, preferred_provider=route_preference)
     except GatewayUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     system_prompt = conversation.system_prompt or DEFAULT_SYSTEM_PROMPT
@@ -507,6 +521,7 @@ def stream_message(
         routes = gateway.eligible_routes("chat", db=db)
         if gateway.mode == "dev" and not routes:
             routes = gateway.eligible_routes("chat")
+        routes = tuple(sorted(routes, key=lambda route: 0 if route.provider == route_preference else 1))
         if not routes:
             yield f"data: {json.dumps({'error': 'No eligible free AI provider is configured or enabled'})}\n\n"
             yield "data: [DONE]\n\n"
@@ -733,9 +748,10 @@ MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024
 
 def _extract_upload_text(kind: str, data: bytes, filename: str) -> str:
     if kind == "pdf":
-        from app.services.documents import extract_pdf_text
+        from app.services.documents import extract_pdf_ocr, extract_pdf_text
 
-        return extract_pdf_text(data)
+        text = extract_pdf_text(data)
+        return text or extract_pdf_ocr(data)
     if kind == "text":
         return data.decode("utf-8", errors="replace")[:200_000]
     if kind == "image":

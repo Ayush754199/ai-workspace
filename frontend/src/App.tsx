@@ -11,8 +11,6 @@ import Research from "./pages/Research";
 import { AuthProvider } from "./contexts/AuthContext";
 import AdminDashboard from "./pages/AdminDashboard";
 import Profile from "./pages/Profile";
-import VideoStudio from "./pages/VideoStudio";
-import AiVideoStudio from "./pages/AiVideoStudio";
 import { useAuth } from "./contexts/AuthContext";
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -46,8 +44,6 @@ const App: React.FC = () => {
           <Route path="/images" element={<ProtectedRoute><ImageWorkspace /></ProtectedRoute>} />
           <Route path="/office" element={<ProtectedRoute><Office /></ProtectedRoute>} />
           <Route path="/research" element={<ProtectedRoute><Research /></ProtectedRoute>} />
-          <Route path="/video-studio" element={<ProtectedRoute><AiVideoStudio /></ProtectedRoute>} />
-          <Route path="/video-studio/editor" element={<ProtectedRoute><VideoStudio /></ProtectedRoute>} />
           <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
           <Route path="/admin" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
         </Routes>

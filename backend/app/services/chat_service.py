@@ -202,7 +202,7 @@ class ResolvedModel:
     model: str
 
 
-def resolve_model(db: Session, requested: str | None, capability: str = "chat") -> ResolvedModel:
+def resolve_model(db: Session, requested: str | None, capability: str = "chat", preferred_provider: str | None = None) -> ResolvedModel:
     """Pin a requested model id, or auto-route when omitted/auto."""
     gateway = AIGateway()
     live = gateway.eligible_routes(capability, db=db)
@@ -213,6 +213,8 @@ def resolve_model(db: Session, requested: str | None, capability: str = "chat") 
             "No eligible free AI provider is available. An administrator must enable and verify one."
         )
     if not requested or requested == "auto":
+        if preferred_provider:
+            live = tuple(sorted(live, key=lambda route: 0 if route.provider == preferred_provider else 1))
         return ResolvedModel(live[0].provider, live[0].model)
     if ":" in requested:
         provider, model = requested.split(":", 1)
@@ -234,6 +236,7 @@ async def generate_reply(
     system_prompt: str | None,
     capability: str = "chat",
     reservation_id: str | None = None,
+    preferred_provider: str | None = None,
 ) -> tuple[str, str, str]:
     """Run one generation inside the per-user concurrency guard.
 
@@ -253,6 +256,7 @@ async def generate_reply(
                 prompt=prompt,
                 system_prompt=system_prompt or DEFAULT_SYSTEM_PROMPT,
                 capability=capability,
+                preferred_provider=preferred_provider,
             )
         return text, route.provider, route.model
     with ChatLimiter(user_id):
@@ -261,5 +265,6 @@ async def generate_reply(
             prompt,
             system_prompt=system_prompt or DEFAULT_SYSTEM_PROMPT,
             capability=capability,
+            preferred_provider=preferred_provider,
         )
     return text, route.provider, route.model

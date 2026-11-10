@@ -7,6 +7,8 @@ from app.models.gateway import (
     Provider,
     ProviderHealth,
     ProviderModel,
+    ProviderBudget,
+    ProviderBudgetReservation,
     QuotaReservation,
     UsageLog,
     UserQuota,
@@ -14,5 +16,5 @@ from app.models.gateway import (
 
 __all__ = [
     "AdminSetting", "CapabilityQuota", "ChatQuota", "CreditTransaction", "MediaJob", "Provider", "ProviderHealth",
-    "ProviderModel", "QuotaReservation", "UsageLog", "UserQuota",
+    "ProviderModel", "ProviderBudget", "ProviderBudgetReservation", "QuotaReservation", "UsageLog", "UserQuota",
 ]

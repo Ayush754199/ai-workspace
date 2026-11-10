@@ -278,6 +278,77 @@ class GroqGatewayProvider:
         return GatewayResponse(answer, self.name, selected)
 
 
+class MuseSparkGatewayProvider:
+    """OpenAI-compatible Muse Spark adapter; endpoint and model are operator-supplied."""
+
+    name = "muse_spark"
+
+    def __init__(self, endpoint: str, api_key: str, model: str, *, timeout: float = 120.0) -> None:
+        if not endpoint or not api_key or not model:
+            raise GatewayProviderError("Muse Spark is not fully configured")
+        self.endpoint, self.api_key, self.model, self.timeout = endpoint.rstrip("/"), api_key, model, timeout
+
+    def generate(self, prompt: str, *, system_prompt: str | None = None, model: str | None = None) -> GatewayResponse:
+        messages = ([{"role": "system", "content": system_prompt}] if system_prompt else []) + [{"role": "user", "content": prompt}]
+        try:
+            response = requests.post(self.endpoint, headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}, json={"model": model or self.model, "messages": messages}, timeout=self.timeout)
+            response.raise_for_status()
+            choices = response.json().get("choices") or []
+            answer = (choices[0].get("message") or {}).get("content") if choices else None
+        except requests.Timeout as exc:
+            raise GatewayProviderError("Muse Spark request timed out", uncertain=True) from exc
+        except requests.ConnectionError as exc:
+            raise GatewayProviderError("Muse Spark connection failed", uncertain=True) from exc
+        except requests.HTTPError as exc:
+            status = getattr(exc.response, "status_code", None)
+            raise GatewayProviderError("Muse Spark rejected the request", status_code=status, retryable=status in {408, 409, 429, 500, 502, 503, 504}) from exc
+        except (ValueError, requests.JSONDecodeError) as exc:
+            raise GatewayProviderError("Muse Spark returned malformed JSON") from exc
+        if not isinstance(answer, str) or not answer.strip():
+            raise GatewayProviderError("Muse Spark returned an empty response")
+        return GatewayResponse(answer.strip(), self.name, model or self.model)
+
+
+class CloudflareGatewayProvider:
+    """Workers AI OpenAI-compatible text adapter for research synthesis."""
+
+    name = "cloudflare"
+
+    def __init__(self, account_id: str, api_token: str, model: str, *, timeout: float = 120.0) -> None:
+        if not account_id or not api_token or not model:
+            raise GatewayProviderError("Cloudflare Workers AI research is not fully configured")
+        self.endpoint = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1/chat/completions"
+        self.api_token, self.model, self.timeout = api_token, model, timeout
+
+    def generate(self, prompt: str, *, system_prompt: str | None = None, model: str | None = None) -> GatewayResponse:
+        messages = ([{"role": "system", "content": system_prompt}] if system_prompt else []) + [{"role": "user", "content": prompt}]
+        try:
+            response = requests.post(
+                self.endpoint,
+                headers={"Authorization": f"Bearer {self.api_token}", "Content-Type": "application/json"},
+                json={"model": model or self.model, "messages": messages},
+                timeout=self.timeout,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            choices = payload.get("choices") or []
+            answer = (choices[0].get("message") or {}).get("content") if choices else None
+            if not answer:
+                answer = ((payload.get("result") or {}).get("response"))
+        except requests.Timeout as exc:
+            raise GatewayProviderError("Cloudflare Workers AI request timed out", uncertain=True) from exc
+        except requests.ConnectionError as exc:
+            raise GatewayProviderError("Cloudflare Workers AI connection failed", uncertain=True) from exc
+        except requests.HTTPError as exc:
+            status = getattr(exc.response, "status_code", None)
+            raise GatewayProviderError("Cloudflare Workers AI rejected the request", status_code=status, retryable=status in {408, 409, 429, 500, 502, 503, 504}) from exc
+        except (ValueError, requests.JSONDecodeError) as exc:
+            raise GatewayProviderError("Cloudflare Workers AI returned malformed JSON") from exc
+        if not isinstance(answer, str) or not answer.strip():
+            raise GatewayProviderError("Cloudflare Workers AI returned an empty response")
+        return GatewayResponse(answer.strip(), self.name, model or self.model)
+
+
 def _iter_sse_json(response) -> "object":
     """Yield decoded JSON objects from an ``iter_lines`` SSE response."""
     import json as _json

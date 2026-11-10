@@ -13,7 +13,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.models.user import User, UserFeaturePermission
 from app.models.room import AdminAuditLog, Message, Room
-from app.models.gateway import CapabilityQuota, Provider, ProviderModel, UserQuota
+from app.models.gateway import CapabilityQuota, Provider, ProviderBudget, ProviderModel, UserQuota
 from app.services.ai_gateway.quota import QuotaService
 from app.services.ai_gateway.openrouter_catalog import discover_free_models
 from app.services.ai_gateway import GatewayUnavailableError
@@ -504,6 +504,33 @@ def usage_analytics(
         "by_provider": by_provider,
         "by_day": dict(sorted(by_day.items())),
         "unique_users": len({row.user_id for row in rows if row.user_id}),
+    }
+
+
+@router.get("/provider-budgets")
+def provider_budgets(_: User = Depends(get_current_admin), db: Session = Depends(get_db)):
+    """Expose budget state without exposing credentials or provider payloads."""
+    rows = db.query(ProviderBudget).order_by(ProviderBudget.provider, ProviderBudget.bucket).all()
+    return {
+        "configured_limits": {
+            "muse_spark_monthly_usd": settings.MUSE_SPARK_MONTHLY_USD,
+            "muse_image_monthly_usd": settings.MUSE_IMAGE_MONTHLY_USD,
+            "cloudflare_daily_neurons": settings.CLOUDFLARE_DAILY_NEURON_LIMIT,
+            "cloudflare_bucket_share": 0.5,
+        },
+        "buckets": [
+            {
+                "provider": row.provider,
+                "bucket": row.bucket,
+                "period": row.period,
+                "window_key": row.window_key,
+                "limit_units": row.limit_units,
+                "used_units": row.used_units,
+                "reserved_units": row.reserved_units,
+                "unit_name": row.unit_name,
+            }
+            for row in rows
+        ],
     }
 
 

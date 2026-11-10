@@ -116,6 +116,34 @@ class AdminSetting(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
+class ProviderBudget(Base):
+    """Atomic server-side budget bucket for provider spend or account units."""
+    __tablename__ = "provider_budgets"
+    id = Column(Integer, primary_key=True)
+    provider = Column(String(80), nullable=False)
+    bucket = Column(String(80), nullable=False)
+    period = Column(String(20), nullable=False)  # monthly | daily
+    window_key = Column(String(40), nullable=False)
+    limit_units = Column(Float, nullable=False, default=0)
+    used_units = Column(Float, nullable=False, default=0)
+    reserved_units = Column(Float, nullable=False, default=0)
+    unit_name = Column(String(40), nullable=False, default="units")
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    __table_args__ = (UniqueConstraint("provider", "bucket", "period", name="uq_provider_budget_bucket"),)
+
+
+class ProviderBudgetReservation(Base):
+    """Idempotent reservation so concurrent requests cannot overspend a bucket."""
+    __tablename__ = "provider_budget_reservations"
+    id = Column(Integer, primary_key=True)
+    request_id = Column(String(160), unique=True, nullable=False, index=True)
+    budget_id = Column(Integer, ForeignKey("provider_budgets.id"), nullable=False, index=True)
+    units = Column(Float, nullable=False)
+    state = Column(String(20), nullable=False, default="RESERVED", index=True)
+    detail = Column(JSON, nullable=False, default=dict)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
 class CreditTransaction(Base):
     __tablename__ = "credit_transactions"
     id = Column(Integer, primary_key=True)

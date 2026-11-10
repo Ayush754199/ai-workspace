@@ -55,6 +55,22 @@ class Settings(BaseSettings):
     AI_REQUEST_TIMEOUT_SECONDS: float = Field(default=120.0, ge=5)
     GROQ_API_URL: str = "https://api.groq.com/openai/v1/chat/completions"
     GROQ_MODEL: str = ""
+    # Muse is intentionally disabled until its private API contract is supplied
+    # and an administrator verifies the exact endpoint/model combination.
+    MUSE_API_URL: str = ""
+    MUSE_API_KEY: str = ""
+    MUSE_SPARK_MODEL: str = ""
+    MUSE_SPARK_VERIFIED: bool = False
+    MUSE_IMAGE_API_URL: str = ""
+    MUSE_IMAGE_MODEL: str = ""
+    MUSE_IMAGE_VERIFIED: bool = False
+    MUSE_IMAGE_SUPPORTS_EDITING: bool = False
+    MUSE_SPARK_MONTHLY_USD: float = Field(default=7.0, ge=0)
+    MUSE_IMAGE_MONTHLY_USD: float = Field(default=7.0, ge=0)
+    # The exact provider-reported charge is required before Muse is enabled.
+    # Zero keeps the route fail-closed until the provider contract is verified.
+    MUSE_SPARK_REQUEST_COST_USD: float = Field(default=0.0, ge=0)
+    MUSE_IMAGE_REQUEST_COST_USD: float = Field(default=0.0, ge=0)
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
     # OpenRouter's free router selects a currently available free model per request.
     OPENROUTER_MODEL: str = "openrouter/free"
@@ -86,6 +102,7 @@ class Settings(BaseSettings):
     # Legacy direct-provider endpoints (/ai/*, /chat/multimodal, /chat/stream) skip
     # quota reservation and the free-provider policy. Off unless explicitly enabled.
     LEGACY_DIRECT_AI_ENABLED: bool = False
+    IMAGE_ORCHESTRATION_ENABLED: bool = True
     OPENROUTER_KEY_1: str = ""
     OPENROUTER_KEY_2: str = ""
     PAID_PROVIDERS_ENABLED: bool = False
@@ -117,6 +134,16 @@ class Settings(BaseSettings):
     CLOUDFLARE_API_TOKEN: str = ""
     CLOUDFLARE_IMAGE_PRIMARY_MODEL: str = "@cf/black-forest-labs/flux-2-klein-4b"
     CLOUDFLARE_IMAGE_FAST_MODEL: str = "@cf/black-forest-labs/flux-1-schnell"
+    # Workers AI usage is billed/limited in neurons. Zero is fail-closed because
+    # the model catalog cannot prove the account's effective daily allowance.
+    CLOUDFLARE_DAILY_NEURON_LIMIT: int = Field(default=0, ge=0)
+    CLOUDFLARE_RESET_TIMEZONE: str = "UTC"
+    CLOUDFLARE_RESEARCH_MODEL: str = ""
+    CLOUDFLARE_RESEARCH_MODEL_VERIFIED: bool = False
+    CLOUDFLARE_IMAGE_MODEL_VERIFIED: bool = False
+    CLOUDFLARE_IMAGE_EDITING_VERIFIED: bool = False
+    CLOUDFLARE_RESEARCH_REQUEST_NEURONS: int = Field(default=0, ge=0)
+    CLOUDFLARE_IMAGE_REQUEST_NEURONS: int = Field(default=0, ge=0)
     LTX_API_KEY: str = ""
     LTX_API_BASE_URL: str = "https://api.ltx.video/v1"
     FAL_KEY: str = ""
