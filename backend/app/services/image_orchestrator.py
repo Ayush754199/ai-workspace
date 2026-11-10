@@ -73,12 +73,24 @@ def _cloudflare(prompt: str, image: bytes | None) -> tuple[bytes, str]:
         raise ImageOrchestrationError("Cloudflare image model is not verified or configured")
     if image is not None and not settings.CLOUDFLARE_IMAGE_EDITING_VERIFIED:
         raise ImageOrchestrationError("Cloudflare image editing input schema has not been verified")
-    body: dict[str, str] = {"prompt": prompt}
-    if image is not None:
-        body["image"] = base64.b64encode(image).decode("ascii")
     endpoint = f"https://api.cloudflare.com/client/v4/accounts/{settings.CLOUDFLARE_ACCOUNT_ID}/ai/run/{settings.CLOUDFLARE_IMAGE_PRIMARY_MODEL}"
     try:
-        response = requests.post(endpoint, headers={"Authorization": f"Bearer {settings.CLOUDFLARE_API_TOKEN}"}, json=body, timeout=settings.AI_REQUEST_TIMEOUT_SECONDS)
+        # FLUX.2 Klein is a multipart-only Workers AI model. Sending JSON
+        # returns Cloudflare error 5006 (required properties are `multipart`).
+        # Reference images use input_image_0..3, not the generic `image` field.
+        files: dict[str, tuple[None, str] | tuple[str, bytes, str]] = {
+            "prompt": (None, prompt),
+            "width": (None, "1024"),
+            "height": (None, "768"),
+        }
+        if image is not None:
+            files["input_image_0"] = ("reference.png", image, "application/octet-stream")
+        response = requests.post(
+            endpoint,
+            headers={"Authorization": f"Bearer {settings.CLOUDFLARE_API_TOKEN}"},
+            files=files,
+            timeout=settings.AI_REQUEST_TIMEOUT_SECONDS,
+        )
         response.raise_for_status()
         return _json_image(response.json()), settings.CLOUDFLARE_IMAGE_PRIMARY_MODEL
     except requests.Timeout as exc:

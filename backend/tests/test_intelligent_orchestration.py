@@ -5,7 +5,7 @@ import pytest
 from app.services.ai_gateway.providers import GatewayResponse, MuseSparkGatewayProvider
 from app.services.ai_gateway.registry import ModelSpec
 from app.services.intelligent_orchestrator import assess_intent, preferred_providers
-from app.services.image_orchestrator import ImageOrchestrationError, generate
+from app.services.image_orchestrator import ImageOrchestrationError, _cloudflare, generate
 
 
 def test_complex_follow_up_prefers_muse_spark():
@@ -67,3 +67,33 @@ def test_image_orchestrator_fails_closed_without_verified_metered_provider(db_se
     monkeypatch.setattr("app.services.image_orchestrator.settings.CLOUDFLARE_IMAGE_MODEL_VERIFIED", False)
     with pytest.raises(ImageOrchestrationError, match="No verified image provider"):
         generate(db=db_session, request_id="image-test-no-provider", prompt="a landscape")
+
+
+def test_cloudflare_flux2_uses_verified_multipart_contract(monkeypatch):
+    seen = {}
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"result": {"image": "aGVsbG8="}}
+
+    def post(url, **kwargs):
+        seen["url"] = url
+        seen.update(kwargs)
+        return Response()
+
+    monkeypatch.setattr("app.services.image_orchestrator.requests.post", post)
+    monkeypatch.setattr("app.services.image_orchestrator.settings.CLOUDFLARE_IMAGE_MODEL_VERIFIED", True)
+    monkeypatch.setattr("app.services.image_orchestrator.settings.CLOUDFLARE_IMAGE_EDITING_VERIFIED", True)
+    monkeypatch.setattr("app.services.image_orchestrator.settings.CLOUDFLARE_ACCOUNT_ID", "account")
+    monkeypatch.setattr("app.services.image_orchestrator.settings.CLOUDFLARE_API_TOKEN", "token")
+    monkeypatch.setattr("app.services.image_orchestrator.settings.CLOUDFLARE_IMAGE_PRIMARY_MODEL", "@cf/black-forest-labs/flux-2-klein-4b")
+
+    data, model = _cloudflare("turn it into a sketch", b"input-bytes")
+    assert data == b"hello"
+    assert model.endswith("flux-2-klein-4b")
+    assert "json" not in seen
+    assert seen["files"]["prompt"] == (None, "turn it into a sketch")
+    assert seen["files"]["input_image_0"][0] == "reference.png"

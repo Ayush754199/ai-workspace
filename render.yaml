@@ -94,6 +94,22 @@ services:
         sync: false
       - key: HF_TOKEN
         sync: false
+      - key: CLOUDFLARE_ACCOUNT_ID
+        sync: false
+      - key: CLOUDFLARE_API_TOKEN
+        sync: false
+      - key: CLOUDFLARE_IMAGE_PRIMARY_MODEL
+        value: "@cf/black-forest-labs/flux-2-klein-4b"
+      - key: CLOUDFLARE_DAILY_NEURON_LIMIT
+        value: "10000"
+      - key: CLOUDFLARE_RESET_TIMEZONE
+        value: "UTC"
+      - key: CLOUDFLARE_IMAGE_MODEL_VERIFIED
+        value: "true"
+      - key: CLOUDFLARE_IMAGE_EDITING_VERIFIED
+        value: "true"
+      - key: CLOUDFLARE_IMAGE_REQUEST_NEURONS
+        value: "130"
       - key: FAL_KEY
         sync: false
       - key: POLLINATIONS_API_KEY
