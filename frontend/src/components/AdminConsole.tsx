@@ -16,6 +16,8 @@ type ModelRow = {
   restrictions: string[];
 };
 type Usage = { days: number; total_requests: number; total_units: number; by_provider: Record<string, number>; by_day: Record<string, number>; unique_users: number };
+type ProviderBudget = { provider: string; bucket: string; period: string; window_key: string; limit_units: number; used_units: number; reserved_units: number; unit_name: string };
+type BudgetReport = { configured_limits: { muse_spark_monthly_usd: number; muse_image_monthly_usd: number; cloudflare_daily_neurons: number; cloudflare_bucket_share: number }; buckets: ProviderBudget[] };
 type LogRow = { id: number; user_id: number | null; provider: string; model: string; status: string; units: number; request_id: string; created_at: string | null };
 type UserRow = { id: number; email: string; full_name: string | null; role: string; is_active: boolean; is_admin: boolean; image_generation?: boolean; video_generation?: boolean };
 type CapabilityQuota = { daily_limit: number; daily_used: number; reserved: number };
@@ -39,6 +41,7 @@ const AdminConsole: React.FC<{ tab: "providers" | "quotas" | "usage" | "logs" | 
   const [selectedUser, setSelectedUser] = useState<number | null>(null);
   const [quota, setQuota] = useState<Quota | null>(null);
   const [usage, setUsage] = useState<Usage | null>(null);
+  const [budgetReport, setBudgetReport] = useState<BudgetReport | null>(null);
   const [logs, setLogs] = useState<LogRow[]>([]);
   const [features, setFeatures] = useState<Record<string, boolean>>({});
   const [error, setError] = useState("");
@@ -103,7 +106,12 @@ const AdminConsole: React.FC<{ tab: "providers" | "quotas" | "usage" | "logs" | 
       });
     if (tab === "usage")
       run(async () => {
-        setUsage(await request("/analytics/usage?days=14"));
+        const [usageData, budgetData] = await Promise.all([
+          request<Usage>("/analytics/usage?days=14"),
+          request<BudgetReport>("/provider-budgets"),
+        ]);
+        setUsage(usageData);
+        setBudgetReport(budgetData);
       });
     if (tab === "logs")
       run(async () => {
@@ -375,6 +383,22 @@ const AdminConsole: React.FC<{ tab: "providers" | "quotas" | "usage" | "logs" | 
               })}
             </div>
           </article>
+          {budgetReport && (
+            <article className="admin-card">
+              <h2>Provider budget guardrails</h2>
+              <p className="admin-hint">Backend-enforced limits; reserved units are held for in-flight requests.</p>
+              <div className="admin-row"><strong>Muse Spark / month</strong><span>${budgetReport.configured_limits.muse_spark_monthly_usd.toFixed(2)}</span></div>
+              <div className="admin-row"><strong>Muse Image / month</strong><span>${budgetReport.configured_limits.muse_image_monthly_usd.toFixed(2)}</span></div>
+              <div className="admin-row"><strong>Cloudflare / day</strong><span>{budgetReport.configured_limits.cloudflare_daily_neurons.toLocaleString()} neurons · 50% per bucket</span></div>
+              {budgetReport.buckets.map((bucket) => (
+                <div className="admin-row" key={`${bucket.provider}:${bucket.bucket}:${bucket.period}`}>
+                  <div><strong>{bucket.provider} · {bucket.bucket}</strong><small>{bucket.window_key} · {bucket.unit_name}</small></div>
+                  <span>{bucket.used_units} used · {bucket.reserved_units} reserved / {bucket.limit_units}</span>
+                </div>
+              ))}
+              {budgetReport.buckets.length === 0 && <p className="admin-hint">No provider budget has been consumed yet.</p>}
+            </article>
+          )}
         </>
       )}
 
