@@ -85,7 +85,7 @@ async def extract(file: UploadFile = File(...), _: User = Depends(get_current_us
         "words": len(text.split()),
         **meta,
         "text": text,
-        "ocr_unavailable": kind == "image" and not text,
+        "ocr_unavailable": kind in {"image", "pdf"} and not text,
     }
 
 

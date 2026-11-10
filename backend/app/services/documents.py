@@ -148,7 +148,14 @@ def extract_any(data: bytes, filename: str, content_type: str | None = None) -> 
     name = (filename or "").lower()
     ctype = (content_type or "").lower()
     if name.endswith(".pdf") or ctype == "application/pdf":
-        return "pdf", extract_pdf_text(data)
+        text = extract_pdf_text(data)
+        # A scanned PDF may contain a mixture of text and image-only pages.
+        # OCR only the pages without a text layer, and retain the page labels
+        # emitted by extract_pdf_ocr so answers can cite their source page.
+        ocr_text = extract_pdf_ocr(data)
+        if ocr_text:
+            text = f"{text}\n\n{ocr_text}".strip() if text else ocr_text
+        return "pdf", text
     if name.endswith(".docx"):
         return "docx", extract_docx_text(data)
     if name.endswith(".pptx"):

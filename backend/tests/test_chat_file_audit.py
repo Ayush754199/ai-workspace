@@ -99,6 +99,19 @@ def test_generated_files_are_readable_again():
     assert "Title" in extract_pdf_text(_pdf_bytes())
 
 
+def test_scanned_pdf_uses_page_labelled_ocr_fallback(monkeypatch):
+    from app.services import documents
+
+    monkeypatch.setattr(documents, "extract_pdf_text", lambda _data: "")
+    monkeypatch.setattr(documents, "extract_pdf_ocr", lambda _data: "## Page 2 (OCR)\nScanned invoice total: 42")
+
+    kind, text = documents.extract_any(b"not-used-by-mocked-extractors", "scan.pdf", "application/pdf")
+
+    assert kind == "pdf"
+    assert "## Page 2 (OCR)" in text
+    assert "Scanned invoice total: 42" in text
+
+
 def test_extraction_helpers_cover_uploaded_office_files():
     from app.services.documents import extract_pptx_text, extract_xlsx_text
 
