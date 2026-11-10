@@ -12,6 +12,7 @@ import { AuthProvider } from "./contexts/AuthContext";
 import AdminDashboard from "./pages/AdminDashboard";
 import Profile from "./pages/Profile";
 import { useAuth } from "./contexts/AuthContext";
+import { CallProvider } from "./calls/CallProvider";
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isLoading } = useAuth();
@@ -31,7 +32,7 @@ const App: React.FC = () => {
   return (
     <Router>
       <AuthProvider>
-        <Routes>
+        <CallProvider><Routes>
           <Route path="/" element={<Navigate to="/assistant" replace />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
@@ -46,7 +47,7 @@ const App: React.FC = () => {
           <Route path="/research" element={<ProtectedRoute><Research /></ProtectedRoute>} />
           <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
           <Route path="/admin" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
-        </Routes>
+        </Routes></CallProvider>
       </AuthProvider>
     </Router>
   );

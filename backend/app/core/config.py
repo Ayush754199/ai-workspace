@@ -151,6 +151,14 @@ class Settings(BaseSettings):
     POLLINATIONS_API_KEY: str = ""
     POLLINATIONS_IMAGE_MODEL: str = "black-forest-labs/flux.1-schnell"
     POLLINATIONS_AUDIO_MODEL: str = "openai/tts-1"
+    # LiveKit credentials are backend-only.  The URL is returned to an
+    # authenticated client only when it requests a short-lived room token.
+    LIVEKIT_URL: str = ""
+    LIVEKIT_API_KEY: str = ""
+    LIVEKIT_API_SECRET: str = ""
+    LIVEKIT_TOKEN_TTL_SECONDS: int = Field(default=600, ge=60, le=3600)
+    LIVEKIT_CALL_RING_TIMEOUT_SECONDS: int = Field(default=45, ge=10, le=300)
+    LIVEKIT_MAX_PARTICIPANTS: int = Field(default=12, ge=2, le=100)
 
     @field_validator("JWT_SECRET")
     @classmethod

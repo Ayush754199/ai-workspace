@@ -20,6 +20,7 @@ from app.api.v1.endpoints.images import router as images_router
 from app.api.v1.endpoints.office import router as office_router
 from app.api.v1.endpoints.research import router as research_router
 from app.api.v1.endpoints.voice import router as voice_router
+from app.api.v1.endpoints.calls import router as calls_router
 from app.core.rate_limit import SecurityMiddleware
 from sqlalchemy import inspect, text
 from app.core.database import Base, engine
@@ -56,6 +57,7 @@ app.include_router(images_router, prefix="/api/v1", tags=["images"])
 app.include_router(office_router, prefix="/api/v1", tags=["office"])
 app.include_router(research_router, prefix="/api/v1", tags=["research"])
 app.include_router(voice_router, prefix="/api/v1", tags=["voice"])
+app.include_router(calls_router, prefix="/api/v1", tags=["calls"])
 app.add_middleware(SecurityMiddleware)
 
 # The frontend runs on a different origin (Vite dev server / static host), so the

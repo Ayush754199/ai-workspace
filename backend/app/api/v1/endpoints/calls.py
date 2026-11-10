@@ -1,0 +1,205 @@
+from __future__ import annotations
+
+import json
+import secrets
+from datetime import datetime, timezone
+from typing import Any
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel, Field, field_validator
+from sqlalchemy.orm import Session
+
+from app.api.deps import get_current_user
+from app.core import security
+from app.core.config import settings
+from app.core.database import get_db
+from app.db.session import mongo
+from app.models.user import User
+from app.services.call_service import (
+    call_hub, create_join_token, ensure_call_indexes, expire_stale_calls, get_call, public_call, require_livekit,
+    transition, utcnow, write_event,
+)
+
+router = APIRouter(prefix="/calls", tags=["calls"])
+
+
+class StartCallRequest(BaseModel):
+    participant_ids: list[int] = Field(min_length=1, max_length=12)
+    call_type: str = "audio"
+    idempotency_key: str | None = Field(default=None, max_length=128)
+
+    @field_validator("call_type")
+    @classmethod
+    def valid_type(cls, value: str) -> str:
+        if value not in {"audio", "video"}:
+            raise ValueError("call_type must be audio or video")
+        return value
+
+
+def _authorize(call: dict[str, Any], user: User) -> None:
+    if int(user.id) not in [int(item) for item in call.get("participant_ids", [])]:
+        raise HTTPException(status_code=403, detail="You are not a participant in this call")
+
+
+async def _notify(call: dict[str, Any], event: str) -> None:
+    await call_hub.send(call.get("participant_ids", []), {"type": event, "call": public_call(call)})
+
+
+@router.on_event("startup")
+async def _startup() -> None:
+    await ensure_call_indexes()
+
+
+@router.post("")
+async def start_call(request: StartCallRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    require_livekit()
+    participant_ids = list(dict.fromkeys([int(current_user.id), *request.participant_ids]))
+    if len(participant_ids) < 2:
+        raise HTTPException(status_code=400, detail="A call needs at least one other participant")
+    if len(participant_ids) > settings.LIVEKIT_MAX_PARTICIPANTS:
+        raise HTTPException(status_code=400, detail="Too many call participants")
+    users = db.query(User).filter(User.id.in_(participant_ids), User.is_active.is_(True)).all()
+    if len(users) != len(participant_ids):
+        raise HTTPException(status_code=404, detail="One or more call participants were not found")
+    await mongo.verify_ready()
+    if request.idempotency_key:
+        existing = await mongo.calls.find_one({"initiated_by": int(current_user.id), "idempotency_key": request.idempotency_key})
+        if existing:
+            return public_call(existing)
+    call = {
+        "call_id": secrets.token_urlsafe(18), "room_name": f"aiw-{secrets.token_urlsafe(18)}",
+        "initiated_by": int(current_user.id), "participant_ids": participant_ids,
+        "call_type": request.call_type, "status": "ringing", "missed": False,
+        "idempotency_key": request.idempotency_key, "created_at": utcnow(), "updated_at": utcnow(),
+    }
+    await mongo.calls.insert_one(call)
+    await write_event(call["call_id"], "ringing", int(current_user.id))
+    await call_hub.send([item for item in participant_ids if item != int(current_user.id)], {"type": "call.incoming", "call": public_call(call)})
+    return public_call(call)
+
+
+@router.get("")
+async def list_calls(limit: int = Query(default=50, ge=1, le=100), current_user: User = Depends(get_current_user)):
+    await mongo.verify_ready()
+    await expire_stale_calls(int(current_user.id))
+    cursor = mongo.calls.find({"participant_ids": int(current_user.id)}).sort("updated_at", -1).limit(limit)
+    return [public_call(item) async for item in cursor]
+
+
+@router.get("/{call_id}")
+async def read_call(call_id: str, current_user: User = Depends(get_current_user)):
+    call = await get_call(call_id)
+    if not call: raise HTTPException(status_code=404, detail="Call not found")
+    _authorize(call, current_user)
+    return public_call(call)
+
+
+@router.post("/{call_id}/accept")
+async def accept_call(call_id: str, current_user: User = Depends(get_current_user)):
+    call = await get_call(call_id)
+    if not call: raise HTTPException(status_code=404, detail="Call not found")
+    _authorize(call, current_user)
+    if call.get("initiated_by") == int(current_user.id): raise HTTPException(status_code=400, detail="Caller cannot accept their own call")
+    if call.get("status") == "active":
+        # The caller may already be connected while the recipient's ringing
+        # UI is still visible; accepting that invitation is idempotent.
+        accepted = call
+    else:
+        accepted = await transition(call, "accepted", int(current_user.id))
+    call = accepted
+    await _notify(call, "call.accepted")
+    return public_call(call)
+
+
+async def _finish(call_id: str, current_user: User, status: str):
+    call = await get_call(call_id)
+    if not call: raise HTTPException(status_code=404, detail="Call not found")
+    _authorize(call, current_user)
+    call = await transition(call, status, int(current_user.id))
+    await _notify(call, f"call.{status}")
+    return public_call(call)
+
+
+@router.post("/{call_id}/reject")
+async def reject_call(call_id: str, current_user: User = Depends(get_current_user)): return await _finish(call_id, current_user, "rejected")
+
+
+@router.post("/{call_id}/cancel")
+async def cancel_call(call_id: str, current_user: User = Depends(get_current_user)):
+    call = await get_call(call_id)
+    if not call: raise HTTPException(status_code=404, detail="Call not found")
+    _authorize(call, current_user)
+    if call.get("initiated_by") != int(current_user.id): raise HTTPException(status_code=403, detail="Only the caller can cancel an unanswered call")
+    call = await transition(call, "cancelled", int(current_user.id))
+    await _notify(call, "call.cancelled")
+    return public_call(call)
+
+
+@router.post("/{call_id}/end")
+async def end_call(call_id: str, current_user: User = Depends(get_current_user)): return await _finish(call_id, current_user, "ended")
+
+
+@router.post("/{call_id}/join")
+async def join_call(call_id: str, current_user: User = Depends(get_current_user)):
+    call = await get_call(call_id)
+    if not call: raise HTTPException(status_code=404, detail="Call not found")
+    _authorize(call, current_user)
+    if call.get("status") not in {"accepted", "active"} and call.get("initiated_by") != int(current_user.id):
+        raise HTTPException(status_code=409, detail="Accept the call before joining")
+    token = await create_join_token(call, current_user)
+    if call.get("status") in {"ringing", "accepted"}:
+        call = await transition(call, "active", int(current_user.id))
+    return {"server_url": settings.LIVEKIT_URL, "participant_token": token, "call": public_call(call)}
+
+
+@router.websocket("/ws")
+async def call_signalling(websocket: WebSocket, token: str = Query(default="")):
+    # Prefer the WebSocket subprotocol so the bearer token is not placed in a
+    # URL that may be copied into access logs/history. Query-token support is
+    # retained only for native clients whose WebSocket API cannot set a custom
+    # header or protocol.
+    protocol_token = websocket.headers.get("sec-websocket-protocol", "").split(",")[0].strip()
+    token = protocol_token or token
+    if not token:
+        await websocket.close(code=4401); return
+    try:
+        payload = security.jwt.decode(token, security.JWT_SECRET, algorithms=[security.ALGORITHM])
+        identifier = payload.get("sub")
+        if not identifier: raise ValueError("missing subject")
+        db = next(get_db())
+        user = db.query(User).filter((User.identifier == identifier) | (User.email == identifier)).first()
+        if not user or not user.is_active: raise ValueError("inactive user")
+    except Exception:
+        await websocket.close(code=4401); return
+    await websocket.accept()
+    call_hub.add(int(user.id), websocket)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        call_hub.remove(int(user.id), websocket)
+    finally:
+        try: db.close()
+        except Exception: pass
+
+
+@router.post("/webhook")
+async def livekit_webhook(request: Request, authorization: str | None = Header(default=None)):
+    require_livekit()
+    body = (await request.body()).decode("utf-8")
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Missing LiveKit webhook authorization")
+    try:
+        from livekit import api
+        event = api.WebhookReceiver(api.TokenVerifier(settings.LIVEKIT_API_KEY, settings.LIVEKIT_API_SECRET)).receive(body, authorization)
+    except Exception as exc:
+        raise HTTPException(status_code=401, detail="Invalid LiveKit webhook signature") from exc
+    event_name = getattr(event, "event", "")
+    room = getattr(event, "room", None)
+    room_name = getattr(room, "name", None) if room else None
+    if room_name and mongo.enabled:
+        call = await mongo.calls.find_one({"room_name": room_name})
+        if call:
+            await mongo.calls.update_one({"call_id": call["call_id"]}, {"$set": {"livekit_event": event_name, "updated_at": utcnow()}})
+            await write_event(call["call_id"], f"livekit:{event_name}", 0, {"room_name": room_name})
+    return {"received": True}

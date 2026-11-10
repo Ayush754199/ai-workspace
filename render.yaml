@@ -115,6 +115,14 @@ services:
         sync: false
       - key: POLLINATIONS_API_KEY
         sync: false
+      # LiveKit Cloud credentials are entered only in Render's environment
+      # dashboard. They are never committed or sent to the browser.
+      - key: LIVEKIT_URL
+        sync: false
+      - key: LIVEKIT_API_KEY
+        sync: false
+      - key: LIVEKIT_API_SECRET
+        sync: false
 
     # Uncomment to keep uploaded files across deploys (requires a paid plan or
     # a paid disk; free instances cannot mount a disk).
