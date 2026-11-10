@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
-import { Attachment, ChatMessage, ChatModel, Conversation, chatV2 } from "../api/workspaceApi";
+import { Attachment, ChatMessage, Conversation, chatV2 } from "../api/workspaceApi";
 import { imageApi } from "../api/workspaceApi";
 import renderMarkdown from "../components/Markdown";
 import VoiceControls from "../components/VoiceControls";
@@ -58,13 +58,6 @@ function csvRows(value: string): string[][] {
   return rows.filter((item) => item.some((column) => column.length));
 }
 
-const STARTERS = [
-  { icon: "✍", title: "Draft something", prompt: "Write a clear 150-word product announcement for a new note-taking app." },
-  { icon: "◫", title: "Analyse text", prompt: "Summarise the key risks in this plan and suggest mitigations: " },
-  { icon: "⌘", title: "Write code", prompt: "Write a Python function that paginates an API using cursors, with tests." },
-  { icon: "✦", title: "Think it through", prompt: "Explain how vector databases work to a non-technical founder." },
-];
-
 function formatTime(iso: string | null) {
   if (!iso) return "";
   const date = new Date(iso);
@@ -73,8 +66,6 @@ function formatTime(iso: string | null) {
 
 const ChatWorkspace: React.FC = () => {
   const { user, token } = useAuth();
-  const [models, setModels] = useState<ChatModel[]>([]);
-  const [modelId, setModelId] = useState("auto");
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<number | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -98,7 +89,6 @@ const ChatWorkspace: React.FC = () => {
   const [pendingDelete, setPendingDelete] = useState<{ id: number; title: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [notice, setNotice] = useState("");
-  const [chatMode, setChatMode] = useState<"chat" | "image">("chat");
   const [featureMenuOpen, setFeatureMenuOpen] = useState(false);
   const [artifactCopied, setArtifactCopied] = useState(false);
   const artifactFrames = useRef(new Map<number, HTMLIFrameElement>());
@@ -115,7 +105,6 @@ const ChatWorkspace: React.FC = () => {
     return null;
   }, [messages]);
 
-  const activeModel = (models || []).find((model) => model.id === modelId);
   const canSend = Boolean(token) && !sending && !artifactView?.pending && (prompt.trim().length > 0 || attachments.length > 0);
 
   const loadConversations = useCallback(async () => {
@@ -129,7 +118,6 @@ const ChatWorkspace: React.FC = () => {
 
   useEffect(() => {
     if (!token) return;
-    chatV2.models(token).then((data) => setModels(data.models)).catch((err) => setError(err.message));
     loadConversations();
   }, [token, loadConversations]);
 
@@ -252,7 +240,7 @@ const ChatWorkspace: React.FC = () => {
       role: "assistant",
       content: "",
       provider: null,
-      model: modelId,
+      model: "auto",
       status: "streaming",
       attachments: [],
       citations: [],
@@ -297,7 +285,7 @@ const ChatWorkspace: React.FC = () => {
       for await (const event of chatV2.stream(
         token,
         conversationId,
-        { content, model: modelId, attachment_ids: attachmentIds, web_search: webSearch },
+        { content, model: "auto", attachment_ids: attachmentIds, web_search: webSearch },
         controller.signal,
       )) {
         if (event.error) throw new Error(event.error);
@@ -437,22 +425,6 @@ const ChatWorkspace: React.FC = () => {
     }
   };
 
-  const exportChat = async () => {
-    if (!token || activeId == null) return;
-    try {
-      const data = await chatV2.exportConversation(token, activeId);
-      const blob = new Blob([data.markdown], { type: "text/markdown" });
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = `${data.title.replace(/[^\w\- ]+/g, "") || "conversation"}.md`;
-      anchor.click();
-      window.setTimeout(() => URL.revokeObjectURL(url), 3000);
-    } catch (err: any) {
-      setError(err?.message || "Export failed");
-    }
-  };
-
   const deleteConversation = async (id: number, confirmFirst = true) => {
     if (!token) return;
     if (confirmFirst) {
@@ -547,65 +519,42 @@ const ChatWorkspace: React.FC = () => {
         <header className="cw-topbar">
           <div className="cw-title">
             <h1>{activeTitle}</h1>
-            <small>{messages.length} messages · context sent automatically</small>
           </div>
           <div className="cw-topbar-actions">
-            <button className="cw-feature-toggle" type="button" aria-expanded={featureMenuOpen} onClick={() => setFeatureMenuOpen((open) => !open)}>
-              <span aria-hidden="true">☰</span> Features
+            <button
+              type="button"
+              className="cw-feature-toggle"
+              aria-label="Open chat features"
+              aria-expanded={featureMenuOpen}
+              onClick={() => setFeatureMenuOpen((open) => !open)}
+            >
+              <span className="cw-feature-bars" aria-hidden="true">☰</span>
+              <span>Features</span>
             </button>
-            <label className="cw-model-picker" title={activeModel?.reason || "Choose the model for the next message"}>
-              <span>Model</span>
-              <select value={modelId} onChange={(e) => setModelId(e.target.value)}>
-                {(models || []).map((model) => (
-                  <option key={model.id} value={model.id} disabled={!model.selectable}>
-                    {model.label}{model.selectable ? "" : " — unavailable"}
-                  </option>
-                ))}
-                {(models || []).length === 0 && <option value="auto">Loading…</option>}
-              </select>
-            </label>
-            <button className="cw-ghost" onClick={exportChat} disabled={activeId == null} title="Export as Markdown">⤓ Export</button>
-            <a className="cw-ghost" href="/documents" title="Open document tools">▤ Docs</a>
-            <a className="cw-ghost" href="/images" title="Open image AI">◫ Images</a>
           </div>
         </header>
 
         {featureMenuOpen && (
-          <div className="cw-feature-menu" aria-label="Workspace features">
-            <button className={chatMode === "chat" ? "selected" : ""} type="button" onClick={() => { setChatMode("chat"); setFeatureMenuOpen(false); }}>
+          <div className="cw-feature-menu" aria-label="Chat features">
+            <button type="button" className="selected" onClick={() => setFeatureMenuOpen(false)}>
               <span>💬</span><strong>Chat</strong><small>Ask anything</small>
             </button>
-            <button className={chatMode === "image" ? "selected" : ""} type="button" onClick={() => { setChatMode("image"); setFeatureMenuOpen(false); }}>
-              <span>✦</span><strong>Image</strong><small>Generate or edit</small>
-            </button>
-            <Link to="/documents" onClick={() => setFeatureMenuOpen(false)}><span>▤</span><strong>Documents</strong><small>Read and generate</small></Link>
-            <Link to="/office" onClick={() => setFeatureMenuOpen(false)}><span>▦</span><strong>Office</strong><small>Workspace tools</small></Link>
-            <Link to="/research" onClick={() => setFeatureMenuOpen(false)}><span>◎</span><strong>Research</strong><small>Deep research</small></Link>
-          </div>
-        )}
-
-        {activeModel && !activeModel.selectable && (
-          <div className="cw-banner warn">
-            This model is not selectable right now: {activeModel.reason || "not configured"}. Auto will use the next available free route.
+            <Link to="/images" onClick={() => setFeatureMenuOpen(false)}>
+              <span>✦</span><strong>Images</strong><small>Generate or edit</small>
+            </Link>
+            <Link to="/documents" onClick={() => setFeatureMenuOpen(false)}>
+              <span>▤</span><strong>Documents</strong><small>Read and generate</small>
+            </Link>
+            <Link to="/office" onClick={() => setFeatureMenuOpen(false)}>
+              <span>▦</span><strong>Office</strong><small>Workspace tools</small>
+            </Link>
+            <Link to="/research" onClick={() => setFeatureMenuOpen(false)}>
+              <span>◎</span><strong>Research</strong><small>Live web sources</small>
+            </Link>
           </div>
         )}
 
         <div className="cw-messages">
-          {messages.length === 0 && (
-            <div className="cw-starters">
-              <p className="cw-eyebrow">Start a conversation</p>
-              <h2>What would you like to get done?</h2>
-              <div className="cw-starter-grid">
-                {STARTERS.map((starter) => (
-                  <button key={starter.title} onClick={() => send(starter.prompt)}>
-                    <span>{starter.icon}</span>
-                    <strong>{starter.title}</strong>
-                    <small>{starter.prompt.slice(0, 70)}…</small>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
           {loadingMessages && messages.length === 0 && (
             <div className="cw-skeleton">
               {[0, 1, 2].map((row) => (
@@ -759,7 +708,7 @@ const ChatWorkspace: React.FC = () => {
                 }
               }}
               placeholder="Message the assistant… attach a file and describe what you need"
-              rows={2}
+              rows={3}
             />
             <div className="cw-composer-actions">
               <button type="button" className="cw-icon" title="Attach files" onClick={() => fileRef.current?.click()}>📎</button>

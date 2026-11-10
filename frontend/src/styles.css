@@ -417,8 +417,9 @@ html, body, #root { min-width: 0; max-width: 100%; overflow-x: hidden; }
 .cw-title h1 { margin: 0; overflow: hidden; font-size: 15px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .cw-title small { color: #6d7286; font-size: 10.5px; }
 .cw-topbar-actions { display: flex; align-items: center; gap: 8px; }
-.cw-feature-toggle { padding: 6px 10px; border: 1px solid #24262f; border-radius: 7px; background: #14161d; color: #c3c6d2; font-size: 11.5px; cursor: pointer; }
+.cw-feature-toggle { display: inline-flex; align-items: center; gap: 7px; padding: 7px 11px; border: 1px solid #4c3a7a; border-radius: 8px; background: #1c1630; color: #d7ccff; font-size: 11.5px; font-weight: 600; cursor: pointer; }
 .cw-feature-toggle:hover, .cw-feature-toggle[aria-expanded="true"] { border-color: #6d43c9; color: #fff; }
+.cw-feature-bars { font-size: 16px; line-height: 1; }
 .cw-model-picker { display: flex; align-items: center; gap: 6px; padding: 4px 6px 4px 10px; border: 1px solid #24262f; border-radius: 8px; background: #0a0c10; color: #8b90a3; font-size: 10.5px; }
 .cw-model-picker select { max-width: 210px; border: 0; outline: 0; background: transparent; color: #e7e8ee; font: inherit; font-size: 11.5px; }
 .cw-ghost { padding: 6px 10px; border: 1px solid #24262f; border-radius: 7px; background: #14161d; color: #c3c6d2; font-size: 11.5px; text-decoration: none; cursor: pointer; }
@@ -483,7 +484,7 @@ html, body, #root { min-width: 0; max-width: 100%; overflow-x: hidden; }
 .cw-composer { max-width: 880px; margin: 0 auto; padding: 10px 12px 8px; border: 1px solid #2a2d3a; border-radius: 14px; background: #11131a; }
 .cw-visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .cw-composer:focus-within { border-color: #4c3a7a; box-shadow: 0 0 0 3px #8b5cf626; }
-.cw-composer textarea { width: 100%; max-height: 200px; resize: none; border: 0; outline: 0; background: transparent; color: #e7e8ee; font: inherit; font-size: 13px; line-height: 1.55; }
+.cw-composer textarea { width: 100%; min-height: 74px; max-height: 200px; resize: none; border: 0; outline: 0; background: transparent; color: #e7e8ee; font: inherit; font-size: 13px; line-height: 1.55; }
 .cw-composer-attachments { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
 .cw-file-chip, .cw-image-chip { display: inline-flex; align-items: center; gap: 6px; min-width: 0; padding: 4px 7px; border: 1px solid #2a2d3a; border-radius: 8px; background: #14161d; color: #b7bccb; font-size: 10.5px; }
 .cw-file-chip b { max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

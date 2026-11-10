@@ -1,6 +1,6 @@
 import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import ChatWorkspace from "../pages/ChatWorkspace";
 import Documents from "../pages/Documents";
@@ -64,12 +64,15 @@ beforeEach(() => {
 });
 
 describe("Phase 1-7 UI", () => {
-  it("renders the chat workspace with starters and a model picker", async () => {
+  it("renders the compact chat workspace with the three-line features menu", async () => {
     render(withAuth(<ChatWorkspace />));
-    expect(await screen.findByText(/What would you like to get done/i)).toBeTruthy();
-    expect(screen.getByRole("combobox")).toBeTruthy();
     expect(screen.getByPlaceholderText(/Message the assistant/i)).toBeTruthy();
-    expect(await screen.findByRole("option", { name: /Groq · llama — unavailable/i })).toBeTruthy();
+    expect(screen.queryByText(/What would you like to get done/i)).toBeNull();
+    const features = screen.getByRole("button", { name: /Open chat features/i });
+    expect(features).toBeTruthy();
+    fireEvent.click(features);
+    expect(screen.getByRole("link", { name: /Images/i })).toBeTruthy();
+    expect(screen.getByRole("link", { name: /Documents/i })).toBeTruthy();
   });
 
   it("renders the documents page with upload, summarise and generation", () => {
