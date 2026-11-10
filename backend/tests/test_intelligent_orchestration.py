@@ -5,7 +5,7 @@ import pytest
 from app.services.ai_gateway.providers import GatewayResponse, MuseSparkGatewayProvider
 from app.services.ai_gateway.registry import ModelSpec
 from app.services.intelligent_orchestrator import assess_intent, preferred_providers
-from app.services.image_orchestrator import ImageOrchestrationError, _cloudflare, generate
+from app.services.image_orchestrator import ImageOrchestrationError, _cloudflare, _response_image, generate
 
 
 def test_complex_follow_up_prefers_muse_spark():
@@ -97,3 +97,14 @@ def test_cloudflare_flux2_uses_verified_multipart_contract(monkeypatch):
     assert "json" not in seen
     assert seen["files"]["prompt"] == (None, "turn it into a sketch")
     assert seen["files"]["input_image_0"][0] == "reference.png"
+
+
+def test_image_adapter_accepts_binary_image_response():
+    class Response:
+        headers = {"content-type": "image/png"}
+        content = b"png-bytes"
+
+        def json(self):
+            raise AssertionError("binary image responses must not be parsed as JSON")
+
+    assert _response_image(Response()) == b"png-bytes"

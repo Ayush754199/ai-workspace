@@ -5,7 +5,7 @@ import { Attachment, ChatMessage, Conversation, chatV2 } from "../api/workspaceA
 import { imageApi } from "../api/workspaceApi";
 import renderMarkdown from "../components/Markdown";
 import VoiceControls from "../components/VoiceControls";
-import WorkspaceFeatureMenu from "../components/WorkspaceFeatureMenu";
+import ChatNavigationDrawer from "../components/ChatNavigationDrawer";
 
 type ChatArtifact = { kind: "pdf" | "excel" | "code"; title: string; filename: string; content: string };
 
@@ -91,6 +91,7 @@ const ChatWorkspace: React.FC = () => {
   const [deleting, setDeleting] = useState(false);
   const [notice, setNotice] = useState("");
   const [chatRoomsOpen, setChatRoomsOpen] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [searchParams] = useSearchParams();
   const [artifactCopied, setArtifactCopied] = useState(false);
   const artifactFrames = useRef(new Map<number, HTMLIFrameElement>());
@@ -475,6 +476,16 @@ const ChatWorkspace: React.FC = () => {
     }
   };
 
+  const projectConversation = async (conversation: Conversation) => {
+    if (!token) return;
+    try {
+      await chatV2.updateConversation(token, conversation.id, { is_pinned: !conversation.is_pinned });
+      loadConversations();
+    } catch (err: any) {
+      setError(err?.message || "Could not update project");
+    }
+  };
+
   const filtered = useMemo(
     () => conversations.filter((conversation) => conversation.title.toLowerCase().includes(search.trim().toLowerCase())),
     [conversations, search],
@@ -484,7 +495,22 @@ const ChatWorkspace: React.FC = () => {
 
   return (
     <div className="cw-shell">
-      <WorkspaceFeatureMenu />
+      <ChatNavigationDrawer
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        conversations={filtered}
+        activeId={activeId}
+        search={search}
+        onSearchChange={setSearch}
+        onNewChat={() => { void createConversation(); setDrawerOpen(false); }}
+        onOpenConversation={openConversation}
+        onArchiveConversation={archiveConversation}
+        onProjectConversation={projectConversation}
+        onDeleteConversation={deleteConversation}
+        showArchived={showArchived}
+        onToggleArchived={() => setShowArchived((value) => !value)}
+        user={user}
+      />
       <aside className={`cw-sidebar ${chatRoomsOpen ? "cw-sidebar-open" : ""}`}>
         <div className="cw-sidebar-head">
           <div className="cw-brand">
@@ -538,12 +564,12 @@ const ChatWorkspace: React.FC = () => {
           <div className="cw-title">
             <button
               type="button"
-              className="cw-rooms-toggle"
-              aria-label="Open chat rooms"
-              aria-expanded={chatRoomsOpen}
-              onClick={() => setChatRoomsOpen((open) => !open)}
+              className="cw-menu-toggle"
+              aria-label="Open chat features and history"
+              aria-expanded={drawerOpen}
+              onClick={() => setDrawerOpen((open) => !open)}
             >
-              <span aria-hidden="true">☰</span> Chats
+              <span aria-hidden="true">☰</span>
             </button>
             <h1>{activeTitle}</h1>
           </div>

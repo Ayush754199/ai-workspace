@@ -27,6 +27,10 @@ const WorkspaceFeatureMenu: React.FC = () => {
     navigate(conversationId ? `/assistant?conversation=${conversationId}` : "/assistant");
   };
 
+  // Chat has its own heading-mounted drawer. Keeping the legacy global trigger
+  // on this route creates two competing menus and puts features behind profile.
+  if (location.pathname === "/assistant") return null;
+
   return (
     <div className="workspace-feature-menu-root">
       <button

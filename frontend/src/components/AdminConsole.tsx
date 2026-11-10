@@ -17,7 +17,7 @@ type ModelRow = {
 };
 type Usage = { days: number; total_requests: number; total_units: number; by_provider: Record<string, number>; by_day: Record<string, number>; unique_users: number };
 type ProviderBudget = { provider: string; bucket: string; period: string; window_key: string; limit_units: number; used_units: number; reserved_units: number; unit_name: string };
-type BudgetReport = { configured_limits: { muse_spark_monthly_usd: number; muse_image_monthly_usd: number; cloudflare_daily_neurons: number; cloudflare_bucket_share: number }; buckets: ProviderBudget[] };
+type BudgetReport = { configured_limits: { muse_spark_monthly_usd: number; muse_image_monthly_usd: number; cloudflare_daily_neurons: number; cloudflare_bucket_share: number }; readiness: { chat: Record<string, boolean>; research: { search_credentials: boolean; cloudflare_analysis: boolean; muse_analysis: boolean }; image: { cloudflare_generation: boolean; cloudflare_editing: boolean; metering_units: number; orchestration_enabled: boolean } }; buckets: ProviderBudget[] };
 type LogRow = { id: number; user_id: number | null; provider: string; model: string; status: string; units: number; request_id: string; created_at: string | null };
 type UserRow = { id: number; email: string; full_name: string | null; role: string; is_active: boolean; is_admin: boolean; image_generation?: boolean; video_generation?: boolean };
 type CapabilityQuota = { daily_limit: number; daily_used: number; reserved: number };
@@ -390,6 +390,10 @@ const AdminConsole: React.FC<{ tab: "providers" | "quotas" | "usage" | "logs" | 
               <div className="admin-row"><strong>Muse Spark / month</strong><span>${budgetReport.configured_limits.muse_spark_monthly_usd.toFixed(2)}</span></div>
               <div className="admin-row"><strong>Muse Image / month</strong><span>${budgetReport.configured_limits.muse_image_monthly_usd.toFixed(2)}</span></div>
               <div className="admin-row"><strong>Cloudflare / day</strong><span>{budgetReport.configured_limits.cloudflare_daily_neurons.toLocaleString()} neurons · 50% per bucket</span></div>
+              <h3 className="admin-subhead">Verified readiness</h3>
+              <div className="admin-row"><strong>Chat providers</strong><span>{Object.entries(budgetReport.readiness.chat).filter(([, ready]) => ready).map(([name]) => name).join(", ") || "none"}</span></div>
+              <div className="admin-row"><strong>Research</strong><span>{budgetReport.readiness.research.search_credentials ? "search configured" : "search missing"} · {[budgetReport.readiness.research.cloudflare_analysis && "Cloudflare", budgetReport.readiness.research.muse_analysis && "Muse"].filter(Boolean).join(" + ") || "no analysis route"}</span></div>
+              <div className="admin-row"><strong>Images</strong><span>{budgetReport.readiness.image.cloudflare_generation ? "Cloudflare generation ready" : "Cloudflare generation unavailable"} · {budgetReport.readiness.image.cloudflare_editing ? "editing verified" : "editing unavailable"}</span></div>
               {budgetReport.buckets.map((bucket) => (
                 <div className="admin-row" key={`${bucket.provider}:${bucket.bucket}:${bucket.period}`}>
                   <div><strong>{bucket.provider} · {bucket.bucket}</strong><small>{bucket.window_key} · {bucket.unit_name}</small></div>

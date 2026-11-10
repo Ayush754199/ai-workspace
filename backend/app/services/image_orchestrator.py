@@ -47,6 +47,20 @@ def _json_image(payload: dict) -> bytes:
     raise ImageOrchestrationError("Image provider returned no image data")
 
 
+def _response_image(response: requests.Response) -> bytes:
+    """Decode either Workers AI's binary image or its JSON/base64 envelope."""
+    headers = getattr(response, "headers", {}) or {}
+    content_type = (headers.get("content-type") or "").split(";", 1)[0].strip().lower()
+    if content_type.startswith("image/"):
+        if not getattr(response, "content", b""):
+            raise ImageOrchestrationError("Image provider returned an empty image")
+        return response.content
+    try:
+        return _json_image(response.json())
+    except ValueError as exc:
+        raise ImageOrchestrationError("Image provider returned malformed JSON") from exc
+
+
 def _muse(prompt: str, image: bytes | None, mime_type: str) -> tuple[bytes, str]:
     if not (settings.MUSE_IMAGE_VERIFIED and settings.MUSE_IMAGE_API_URL and settings.MUSE_API_KEY and settings.MUSE_IMAGE_MODEL):
         raise ImageOrchestrationError("Muse Image is not verified or configured")
@@ -58,8 +72,7 @@ def _muse(prompt: str, image: bytes | None, mime_type: str) -> tuple[bytes, str]
     try:
         response = requests.post(settings.MUSE_IMAGE_API_URL, headers={"Authorization": f"Bearer {settings.MUSE_API_KEY}", "Content-Type": "application/json"}, json=body, timeout=settings.AI_REQUEST_TIMEOUT_SECONDS)
         response.raise_for_status()
-        data = response.json()
-        return _json_image(data), settings.MUSE_IMAGE_MODEL
+        return _response_image(response), settings.MUSE_IMAGE_MODEL
     except requests.Timeout as exc:
         raise ImageOrchestrationError("Muse Image request timed out; usage is uncertain", uncertain=True) from exc
     except requests.RequestException as exc:
@@ -92,7 +105,7 @@ def _cloudflare(prompt: str, image: bytes | None) -> tuple[bytes, str]:
             timeout=settings.AI_REQUEST_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
-        return _json_image(response.json()), settings.CLOUDFLARE_IMAGE_PRIMARY_MODEL
+        return _response_image(response), settings.CLOUDFLARE_IMAGE_PRIMARY_MODEL
     except requests.Timeout as exc:
         raise ImageOrchestrationError("Cloudflare image request timed out; usage is uncertain", uncertain=True) from exc
     except requests.RequestException as exc:

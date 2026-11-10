@@ -313,13 +313,6 @@ async def send_message(
             citations = report.get("sources", [])
             if report.get("error"):
                 raise SearchUnavailable(report["error"])
-            try:
-                research_quota = quotas.reserve(
-                    db, user_id=user.id, request_id=f"{request_id}-research",
-                    provider="web_research", model="source-analysis", capability="research",
-                )
-            except QuotaError as exc:
-                raise SearchUnavailable(str(exc)) from exc
             citations = [{**source, "published_date": source.get("published_date")} for source in citations]
 
             context = report.get("context", "")
@@ -332,18 +325,12 @@ async def send_message(
             )
         except SearchUnavailable as exc:
             quotas.release(db, reservation.reservation_id, failure=True)
-            if "research_quota" in locals():
-                quotas.release(db, research_quota.reservation_id, failure=True)
             db.commit()
             raise HTTPException(status_code=503, detail=f"Live web search is unavailable: {exc}") from exc
         except HTTPException:
-            if "research_quota" in locals():
-                quotas.release(db, research_quota.reservation_id, failure=True)
             raise
         except Exception as exc:  # noqa: BLE001 - never silently degrade to unsourced chat
             quotas.release(db, reservation.reservation_id, failure=True)
-            if "research_quota" in locals():
-                quotas.release(db, research_quota.reservation_id, failure=True)
             db.commit()
             raise HTTPException(status_code=503, detail="Live web search failed. Please retry or turn off web search.") from exc
 
@@ -359,15 +346,11 @@ async def send_message(
         )
     except (ChatConcurrencyError, GatewayUnavailableError, GatewayProviderError) as exc:
         quotas.release(db, reservation.reservation_id, failure=True)
-        if research_requested and "research_quota" in locals():
-            quotas.release(db, research_quota.reservation_id, failure=True)
         db.commit()
         status = 429 if isinstance(exc, ChatConcurrencyError) else 503
         raise HTTPException(status_code=status, detail=str(exc)) from exc
     except BaseException:
         quotas.release(db, reservation.reservation_id, failure=True)
-        if research_requested and "research_quota" in locals():
-            quotas.release(db, research_quota.reservation_id, failure=True)
         db.commit()
         raise
 
@@ -389,8 +372,6 @@ async def send_message(
     conversation.model = f"{provider_name}:{model_name}"
     conversation.provider = provider_name
     conversation.updated_at = datetime.now(timezone.utc)
-    if research_requested and "research_quota" in locals():
-        quotas.commit(db, research_quota.reservation_id, detail={"service": "web_research", "sources": len(citations)})
     db.commit()
     db.refresh(reply)
     db.refresh(user_message)
@@ -546,7 +527,6 @@ def stream_message(
             yield "data: [DONE]\n\n"
             return
         citations: list[dict] = []
-        research_reservation_id = None
         chat_reservation_id = None
         if not research_requested:
             with SessionLocal() as quota_session:
@@ -596,19 +576,9 @@ def stream_message(
                         "then add only one short friendly sentence outside it. For a regular question, answer in 1–3 lines. "
                         "Cite claims inline using source numbers, and say clearly if sources do not support an answer."
                     )
-                    try:
-                        research_reservation = quota_service.reserve(
-                            quota_session, user_id=user.id, request_id=f"{request_id}-stream-research",
-                            provider="web_research", model="source-analysis", capability="research",
-                        )
-                    except QuotaError as exc:
-                        raise SearchUnavailable(str(exc)) from exc
-                    research_reservation_id = research_reservation.reservation_id
                 except Exception as exc:
                     if chat_reservation_id:
                         quota_service.release(quota_session, chat_reservation_id, failure=True)
-                    if research_reservation_id:
-                        quota_service.release(quota_session, research_reservation_id, failure=True)
                     error_text = str(exc) if isinstance(exc, (QuotaError, SearchUnavailable)) else "Web research is unavailable; regular chat was not used as a fallback"
             if error_text:
                 yield f"data: {json.dumps({'error': error_text})}\n\n"
@@ -618,8 +588,6 @@ def stream_message(
             with SessionLocal() as quota_session:
                 if chat_reservation_id:
                     QuotaService().release(quota_session, chat_reservation_id, failure=True)
-                if research_reservation_id:
-                    QuotaService().release(quota_session, research_reservation_id, failure=True)
             yield f"data: {json.dumps({'error': 'Too many concurrent AI requests. Try again shortly.'})}\n\n"
             yield "data: [DONE]\n\n"
             return
@@ -670,8 +638,6 @@ def stream_message(
             with SessionLocal() as quota_session:
                 if chat_reservation_id:
                     QuotaService().release(quota_session, chat_reservation_id, failure=True)
-                if research_reservation_id:
-                    QuotaService().release(quota_session, research_reservation_id, failure=True)
             yield f"data: {json.dumps({'error': error_text})}\n\n"
         elif produced:
             with SessionLocal() as session:
@@ -684,8 +650,6 @@ def stream_message(
                 session.add(reply)
                 if chat_reservation_id:
                     QuotaService().commit(session, chat_reservation_id, detail={"capability": "chat", "conversation": conversation.id, "route": used_provider, "web_search": research_requested})
-                if research_reservation_id:
-                    QuotaService().commit(session, research_reservation_id, detail={"service": "web_research", "sources": len(citations)})
                 conv = session.query(AiConversation).filter(AiConversation.id == conversation.id).first()
                 if conv is not None:
                     if conv.title in {"New chat", "Untitled"} and content:

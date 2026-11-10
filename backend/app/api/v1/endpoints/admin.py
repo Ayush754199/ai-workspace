@@ -12,11 +12,12 @@ from app.api.deps import get_current_admin
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.user import User, UserFeaturePermission
-from app.models.room import AdminAuditLog, Message, Room
+from app.models.room import AdminAuditLog, Message, Room, RoomInvite
 from app.models.gateway import CapabilityQuota, Provider, ProviderBudget, ProviderModel, UserQuota
 from app.services.ai_gateway.quota import QuotaService
 from app.services.ai_gateway.openrouter_catalog import discover_free_models
 from app.services.ai_gateway import GatewayUnavailableError
+from backend.key_rotator import get_provider_credentials
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -284,7 +285,11 @@ def list_all_chats(
     for room in rooms:
         members = db.query(User).filter(User.id.in_(room.members or [])).all() if room.members else []
         messages = db.query(Message).filter(Message.room_id == room.id).all()
-        searchable_users = members + [db.query(User).filter(User.id == message.sender_id).first() for message in messages]
+        pending_invitees = db.query(User).join(RoomInvite, RoomInvite.invited_user_id == User.id).filter(
+            RoomInvite.room_id == room.id,
+            RoomInvite.status == "pending",
+        ).all()
+        searchable_users = members + pending_invitees + [db.query(User).filter(User.id == message.sender_id).first() for message in messages]
         searchable_users = [user for user in searchable_users if user is not None]
         if room_name and room_name.lower() not in room.name.lower():
             continue
@@ -511,12 +516,53 @@ def usage_analytics(
 def provider_budgets(_: User = Depends(get_current_admin), db: Session = Depends(get_db)):
     """Expose budget state without exposing credentials or provider payloads."""
     rows = db.query(ProviderBudget).order_by(ProviderBudget.provider, ProviderBudget.bucket).all()
+    def has_credentials(provider: str) -> bool:
+        try:
+            return bool(get_provider_credentials(provider))
+        except Exception:  # noqa: BLE001 - readiness must never expose provider errors
+            return False
+
+    image_cloudflare = bool(
+        settings.CLOUDFLARE_ACCOUNT_ID
+        and settings.CLOUDFLARE_API_TOKEN
+        and settings.CLOUDFLARE_IMAGE_PRIMARY_MODEL
+    )
+    image_route = bool(
+        image_cloudflare
+        and settings.CLOUDFLARE_IMAGE_MODEL_VERIFIED
+        and settings.CLOUDFLARE_IMAGE_REQUEST_NEURONS > 0
+    )
+    research_cloudflare = bool(
+        settings.CLOUDFLARE_ACCOUNT_ID
+        and settings.CLOUDFLARE_API_TOKEN
+        and settings.CLOUDFLARE_RESEARCH_MODEL
+        and settings.CLOUDFLARE_RESEARCH_MODEL_VERIFIED
+        and settings.CLOUDFLARE_RESEARCH_REQUEST_NEURONS > 0
+    )
     return {
         "configured_limits": {
             "muse_spark_monthly_usd": settings.MUSE_SPARK_MONTHLY_USD,
             "muse_image_monthly_usd": settings.MUSE_IMAGE_MONTHLY_USD,
             "cloudflare_daily_neurons": settings.CLOUDFLARE_DAILY_NEURON_LIMIT,
             "cloudflare_bucket_share": 0.5,
+        },
+        "readiness": {
+            "chat": {
+                "openrouter": has_credentials("OpenRouter"),
+                "groq": bool(has_credentials("Groq") and settings.GROQ_MODEL),
+                "gemini": has_credentials("Gemini"),
+            },
+            "research": {
+                "search_credentials": bool(settings.TAVILY_API_KEY_1 or settings.TAVILY_API_KEY_2),
+                "cloudflare_analysis": research_cloudflare,
+                "muse_analysis": bool(settings.MUSE_SPARK_VERIFIED and settings.MUSE_API_URL and settings.MUSE_API_KEY and settings.MUSE_SPARK_MODEL and settings.MUSE_SPARK_REQUEST_COST_USD > 0),
+            },
+            "image": {
+                "cloudflare_generation": image_route,
+                "cloudflare_editing": bool(image_route and settings.CLOUDFLARE_IMAGE_EDITING_VERIFIED),
+                "metering_units": settings.CLOUDFLARE_IMAGE_REQUEST_NEURONS,
+                "orchestration_enabled": settings.IMAGE_ORCHESTRATION_ENABLED,
+            },
         },
         "buckets": [
             {

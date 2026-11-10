@@ -138,8 +138,10 @@ class BraveSearchProvider(SearchProvider):
         self.api_key = api_key or ""
 
     def search(self, query: str) -> list[SearchResult]:
+        # An unconfigured provider is unavailable, not a search result. Never
+        # manufacture a URL or a citation merely to keep a legacy workflow alive.
         if not self.api_key:
-            return [SearchResult("Search not configured", "https://example.com", "Add BRAVE_API_KEY to enable live web search.", self.name)]
+            return []
         return []
 
 
@@ -163,7 +165,7 @@ class FirecrawlSearchProvider(SearchProvider):
 
     def extract(self, url: str) -> dict[str, Any]:
         if not self.api_key:
-            return {"url": url, "title": "", "content": "Unavailable without FIRECRAWL_API_KEY"}
+            return {"url": url, "title": "", "content": ""}
         return {"url": url, "title": "", "content": ""}
 
 
