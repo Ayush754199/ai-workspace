@@ -256,11 +256,15 @@ ensure_schema()
 
 
 @app.on_event("startup")
-def ensure_user_admin_column():
+async def ensure_user_admin_column():
 	"""Re-run schema compatibility and recover interrupted media jobs."""
 	ensure_schema()
 	from app.api.v1.endpoints.video import recover_interrupted_jobs
 	recover_interrupted_jobs()
+    if settings.CALL_DATA_RESET_ON_STARTUP:
+        from app.services.call_service import purge_call_data
+        deleted = await purge_call_data()
+        print(f"Call data reset completed: {deleted}")
 
 # Protected route example - all endpoints will depend on get_current_user
 # This can be applied globally or per-endpoint
