@@ -68,10 +68,11 @@ services:
       - key: ATTACHMENT_STORAGE_DIR
         value: /var/data/attachments
 
-      # Free-tier deployment runs the gateway in dev mode (mock provider only).
-      # Set this to `live` and add a provider key once one is configured.
+      # Production must use verified live providers. If no provider is
+      # configured, the backend fails closed with a clear 503 instead of
+      # returning a mock answer.
       - key: AI_GATEWAY_MODE
-        value: "dev"
+        value: "live"
 
       # --- MongoDB Atlas -----------------------------------------------------
       # Use the SRV URI from Atlas (Cluster -> Connect -> Drivers):
