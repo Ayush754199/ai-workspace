@@ -257,10 +257,10 @@ ensure_schema()
 
 @app.on_event("startup")
 async def ensure_user_admin_column():
-	"""Re-run schema compatibility and recover interrupted media jobs."""
-	ensure_schema()
-	from app.api.v1.endpoints.video import recover_interrupted_jobs
-	recover_interrupted_jobs()
+    """Re-run schema compatibility and recover interrupted media jobs."""
+    ensure_schema()
+    from app.api.v1.endpoints.video import recover_interrupted_jobs
+    recover_interrupted_jobs()
     if settings.CALL_DATA_RESET_ON_STARTUP:
         from app.services.call_service import purge_call_data
         deleted = await purge_call_data()
