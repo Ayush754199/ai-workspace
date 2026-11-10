@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { ControlBar, LiveKitRoom, ParticipantTile, RoomAudioRenderer, useTracks } from "@livekit/components-react";
+import { ControlBar, ParticipantTile, RoomAudioRenderer, RoomContext, useTracks } from "@livekit/components-react";
 import { Room, RoomEvent, Track } from "livekit-client";
 import "@livekit/components-styles";
 import { CallMessage, CallRecord, callsApi } from "./callsApi";
@@ -78,7 +78,7 @@ const LiveKitCallRoom: React.FC<Props> = ({ call, room, token, onEnd }) => {
   if (!room) return null;
   return <div className={`call-room call-room-live ${chatOpen ? "with-chat" : ""}`} role="dialog" aria-label="Active call">
     <div className="call-room-title"><span>{call.call_type === "video" ? "Video call" : "Audio call"} · {formatDuration(seconds)}</span><span className={connected ? "call-connection-good" : "call-connection-warn"}>{connected ? `${room.remoteParticipants.size + 1} connected` : "Reconnecting…"}</span></div>
-    <div className="call-room-livekit"><LiveKitRoom room={room} serverUrl={undefined} token={undefined} connect={false} audio={false} video={false}><RoomAudioRenderer room={room} /><CallVisualStage callType={call.call_type} room={room} /><div className="call-livekit-controls"><ControlBar controls={{ microphone: true, camera: call.call_type === "video", screenShare: true, chat: false, leave: false, settings: true }} /></div></LiveKitRoom></div>
+    <div className="call-room-livekit"><RoomContext.Provider value={room}><RoomAudioRenderer room={room} /><CallVisualStage callType={call.call_type} room={room} /><div className="call-livekit-controls"><ControlBar controls={{ microphone: true, camera: call.call_type === "video", screenShare: true, chat: false, leave: false, settings: true }} /></div></RoomContext.Provider></div>
     {chatOpen && <aside className="call-chat-panel"><div className="call-chat-head"><strong>In-call chat</strong><button onClick={() => setChatOpen(false)}>×</button></div><div className="call-chat-messages">{messages.map((message) => <div className="call-chat-message" key={message.message_id}><strong>{message.sender_name}</strong><span>{message.content}</span><small>{new Date(message.created_at).toLocaleTimeString()}</small></div>)}</div><form onSubmit={sendMessage} className="call-chat-compose"><input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Message participants" /><button disabled={!draft.trim()}>Send</button></form>{messageError && <small className="error-text">{messageError}</small>}</aside>}
     <div className="call-controls"><button onClick={() => setChatOpen((open) => !open)}>Chat{messages.length ? ` (${messages.length})` : ""}</button><button className="call-end" onClick={onEnd}>End call</button></div>
   </div>;
