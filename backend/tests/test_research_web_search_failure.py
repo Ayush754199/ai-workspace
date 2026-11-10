@@ -34,6 +34,9 @@ def test_web_search_failure_is_explicit_and_does_not_call_chat(tmp_path, monkeyp
             session.close()
 
     called = {"chat": False}
+    # The test isolates retrieval failure; use the deterministic mock route so
+    # provider availability does not mask the search error being asserted.
+    monkeypatch.setattr("app.services.ai_gateway.gateway.settings.AI_GATEWAY_MODE", "dev")
 
     def broken_search(*_args, **_kwargs):
         raise research_service.SearchUnavailable("network unavailable")

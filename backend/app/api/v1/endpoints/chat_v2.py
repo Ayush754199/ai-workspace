@@ -254,12 +254,14 @@ async def send_message(
     assessment = assess_intent(content, conversation=prior_turns, attachments=attachment_summary)
     route_preference = preferred_providers(assessment)[0]
     research_requested = payload.web_search or assessment.needs_current_information
+    route_capability = assessment.capability if assessment.capability in {"research", "multimodal"} else "chat"
+    quota_capability = "research" if route_capability == "research" else "chat"
     # ``conversation.model`` records the last route for observability; it is not
     # an implicit pin. Auto/follow-up turns must be allowed to switch providers
     # when the new intent benefits from a different capability.
     requested_model = payload.model if payload.model and payload.model != "auto" else None
     try:
-        resolved = resolve_model(db, requested_model, preferred_provider=route_preference)
+        resolved = resolve_model(db, requested_model, capability=route_capability, preferred_provider=route_preference)
     except GatewayUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
@@ -272,6 +274,7 @@ async def send_message(
             request_id=request_id,
             provider=resolved.provider,
             model=resolved.model,
+            capability=quota_capability,
             chat_id=f"ai-conversation-{conversation.id}",
         )
     except QuotaExhausted as exc:
@@ -350,7 +353,7 @@ async def send_message(
             user_id=user.id,
             prompt=prompt,
             system_prompt=system_prompt,
-            capability="chat",
+            capability=route_capability,
             reservation_id=reservation.reservation_id,
             preferred_provider=route_preference,
         )
@@ -422,8 +425,10 @@ async def regenerate(
     assessment = assess_intent(last_user_prompt, conversation=prior_turns)
     route_preference = preferred_providers(assessment)[0]
     research_requested = payload.web_search or assessment.needs_current_information
+    route_capability = assessment.capability if assessment.capability in {"research", "multimodal"} else "chat"
+    quota_capability = "research" if route_capability == "research" else "chat"
     try:
-        resolved = resolve_model(db, None, preferred_provider=route_preference)
+        resolved = resolve_model(db, None, capability=route_capability, preferred_provider=route_preference)
     except GatewayUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     system_prompt = conversation.system_prompt or DEFAULT_SYSTEM_PROMPT
@@ -439,7 +444,7 @@ async def regenerate(
     try:
         reservation = quotas.reserve(
             db, user_id=user.id, request_id=request_id, provider=resolved.provider,
-            model=resolved.model, chat_id=f"ai-conversation-{conversation.id}",
+            model=resolved.model, capability=quota_capability, chat_id=f"ai-conversation-{conversation.id}",
         )
     except QuotaError as exc:
         raise HTTPException(status_code=429, detail=str(exc)) from exc
@@ -450,7 +455,7 @@ async def regenerate(
             user_id=user.id,
             prompt=prompt,
             system_prompt=conversation.system_prompt or DEFAULT_SYSTEM_PROMPT,
-            capability="chat",
+            capability=route_capability,
             reservation_id=reservation.reservation_id,
             preferred_provider=route_preference,
         )
@@ -494,9 +499,11 @@ def stream_message(
     assessment = assess_intent(content, conversation=prior_turns, attachments=attachment_summary)
     route_preference = preferred_providers(assessment)[0]
     research_requested = payload.web_search or assessment.needs_current_information
+    route_capability = assessment.capability if assessment.capability in {"research", "multimodal"} else "chat"
+    quota_capability = "research" if route_capability == "research" else "chat"
     requested_model = payload.model if payload.model and payload.model != "auto" else None
     try:
-        resolved = resolve_model(db, requested_model, preferred_provider=route_preference)
+        resolved = resolve_model(db, requested_model, capability=route_capability, preferred_provider=route_preference)
     except GatewayUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     system_prompt = conversation.system_prompt or DEFAULT_SYSTEM_PROMPT
@@ -530,9 +537,9 @@ def stream_message(
         used_model = None
         error_text = None
         stream_prompt = prompt
-        routes = gateway.eligible_routes("chat", db=db)
+        routes = gateway.eligible_routes(route_capability, db=db)
         if gateway.mode == "dev" and not routes:
-            routes = gateway.eligible_routes("chat")
+            routes = gateway.eligible_routes(route_capability)
         routes = tuple(sorted(routes, key=lambda route: 0 if route.provider == route_preference else 1))
         if not routes:
             yield f"data: {json.dumps({'error': 'No eligible free AI provider is configured or enabled'})}\n\n"
@@ -547,7 +554,7 @@ def stream_message(
                     chat_reservation = QuotaService().reserve(
                         quota_session, user_id=user.id, request_id=f"{request_id}-stream-chat",
                         provider=resolved.provider, model=resolved.model,
-                        chat_id=f"ai-conversation-{conversation.id}", capability="chat",
+                        chat_id=f"ai-conversation-{conversation.id}", capability=quota_capability,
                     )
                     chat_reservation_id = chat_reservation.reservation_id
                 except QuotaError as exc:
@@ -561,7 +568,7 @@ def stream_message(
                     chat_reservation = quota_service.reserve(
                         quota_session, user_id=user.id, request_id=f"{request_id}-stream-chat",
                         provider=resolved.provider, model=resolved.model,
-                        chat_id=f"ai-conversation-{conversation.id}", capability="chat",
+                        chat_id=f"ai-conversation-{conversation.id}", capability=quota_capability,
                     )
                     chat_reservation_id = chat_reservation.reservation_id
                     yield f"data: {json.dumps({'status': 'searching', 'label': 'Searching the web'})}\n\n"
