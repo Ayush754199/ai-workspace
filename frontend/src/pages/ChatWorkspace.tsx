@@ -65,7 +65,7 @@ function formatTime(iso: string | null) {
 }
 
 const ChatWorkspace: React.FC = () => {
-  const { user, token } = useAuth();
+  const { user, token, logout } = useAuth();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<number | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -90,6 +90,7 @@ const ChatWorkspace: React.FC = () => {
   const [deleting, setDeleting] = useState(false);
   const [notice, setNotice] = useState("");
   const [featureMenuOpen, setFeatureMenuOpen] = useState(false);
+  const [chatRoomsOpen, setChatRoomsOpen] = useState(false);
   const [artifactCopied, setArtifactCopied] = useState(false);
   const artifactFrames = useRef(new Map<number, HTMLIFrameElement>());
   const artifactView = useMemo(() => {
@@ -112,6 +113,10 @@ const ChatWorkspace: React.FC = () => {
     try {
       setConversations(await chatV2.conversations(token, showArchived));
     } catch (err: any) {
+      if (err?.status === 401) {
+        logout();
+        return;
+      }
       setError(err?.message || "Could not load conversations");
     }
   }, [token, showArchived]);
@@ -321,6 +326,10 @@ const ChatWorkspace: React.FC = () => {
           ),
         );
       } else {
+        if (err?.status === 401) {
+          logout();
+          return;
+        }
         const text = err?.message || "The model did not answer";
         const partialArtifact = parseArtifact(typeof text === "string" ? text : "");
         setMessages((current) =>
@@ -467,7 +476,7 @@ const ChatWorkspace: React.FC = () => {
 
   return (
     <div className="cw-shell">
-      <aside className="cw-sidebar">
+      <aside className={`cw-sidebar ${chatRoomsOpen ? "cw-sidebar-open" : ""}`}>
         <div className="cw-sidebar-head">
           <div className="cw-brand">
             <span>✦</span>
@@ -518,6 +527,15 @@ const ChatWorkspace: React.FC = () => {
       <main className={`cw-main ${artifactView ? "has-artifact" : ""}`}>
         <header className="cw-topbar">
           <div className="cw-title">
+            <button
+              type="button"
+              className="cw-rooms-toggle"
+              aria-label="Open chat rooms"
+              aria-expanded={chatRoomsOpen}
+              onClick={() => setChatRoomsOpen((open) => !open)}
+            >
+              <span aria-hidden="true">☰</span> Chats
+            </button>
             <h1>{activeTitle}</h1>
           </div>
           <div className="cw-topbar-actions">

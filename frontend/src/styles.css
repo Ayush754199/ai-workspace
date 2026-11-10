@@ -420,6 +420,7 @@ html, body, #root { min-width: 0; max-width: 100%; overflow-x: hidden; }
 .cw-feature-toggle { display: inline-flex; align-items: center; gap: 7px; padding: 7px 11px; border: 1px solid #4c3a7a; border-radius: 8px; background: #1c1630; color: #d7ccff; font-size: 11.5px; font-weight: 600; cursor: pointer; }
 .cw-feature-toggle:hover, .cw-feature-toggle[aria-expanded="true"] { border-color: #6d43c9; color: #fff; }
 .cw-feature-bars { font-size: 16px; line-height: 1; }
+.cw-rooms-toggle { display: none; padding: 7px 10px; border: 1px solid #303747; border-radius: 8px; background: #151923; color: #cbd2e3; font-size: 11.5px; font-weight: 600; cursor: pointer; }
 .cw-model-picker { display: flex; align-items: center; gap: 6px; padding: 4px 6px 4px 10px; border: 1px solid #24262f; border-radius: 8px; background: #0a0c10; color: #8b90a3; font-size: 10.5px; }
 .cw-model-picker select { max-width: 210px; border: 0; outline: 0; background: transparent; color: #e7e8ee; font: inherit; font-size: 11.5px; }
 .cw-ghost { padding: 6px 10px; border: 1px solid #24262f; border-radius: 7px; background: #14161d; color: #c3c6d2; font-size: 11.5px; text-decoration: none; cursor: pointer; }
@@ -771,9 +772,15 @@ html, body, #root { min-width: 0; max-width: 100%; overflow-x: hidden; }
   .cw-brand > div { display: none; }
   .cw-brand > span { width: 25px; height: 25px; font-size: 12px; }
   .cw-new { padding: 7px 10px; font-size: 11px; }
-  .cw-search, .cw-conv-list, .cw-sidebar-foot { display: none; }
+  .cw-search { display: flex; margin: 0 10px 6px; }
+  .cw-conv-list { display: block; max-height: 132px; overflow-y: auto; padding: 0 8px 6px; }
+  .cw-sidebar-foot { display: none; }
+  .cw-sidebar.cw-sidebar-open .cw-search, .cw-sidebar.cw-sidebar-open .cw-conv-list, .cw-sidebar.cw-sidebar-open .cw-sidebar-foot { display: block; }
+  .cw-sidebar.cw-sidebar-open .cw-sidebar-foot { display: grid; }
   .cw-main { flex: 1; min-height: 0; }
   .cw-topbar { align-items: flex-start; flex-wrap: wrap; padding: 12px; }
+  .cw-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .cw-rooms-toggle { display: inline-flex; align-items: center; gap: 5px; flex: 0 0 auto; }
   .cw-topbar-actions { width: 100%; flex-wrap: wrap; }
   .cw-topbar-actions .cw-ghost { display: none; }
   .cw-model-picker { flex: 1; min-width: 0; }

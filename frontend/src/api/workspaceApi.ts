@@ -260,7 +260,9 @@ export const imageApi = {
     });
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
-      throw new Error(readErrorDetail((data as { detail?: unknown }).detail, "Image request failed"));
+      const error = new Error(readErrorDetail((data as { detail?: unknown }).detail, "Image request failed")) as Error & { status?: number };
+      error.status = response.status;
+      throw error;
     }
     return response.blob();
   },
