@@ -158,7 +158,13 @@ class Settings(BaseSettings):
     LIVEKIT_API_SECRET: str = ""
     LIVEKIT_TOKEN_TTL_SECONDS: int = Field(default=600, ge=60, le=3600)
     LIVEKIT_CALL_RING_TIMEOUT_SECONDS: int = Field(default=45, ge=10, le=300)
+    # Calls that have no LiveKit heartbeat/webhook activity beyond this window
+    # are stale and must not keep a user marked busy forever.
+    LIVEKIT_STALE_CALL_TIMEOUT_SECONDS: int = Field(default=21600, ge=300, le=604800)
     LIVEKIT_MAX_PARTICIPANTS: int = Field(default=12, ge=2, le=100)
+    # Emergency, explicitly opt-in cleanup switch. Keep false in all normal
+    # deployments; it is used only for a controlled call-data reset.
+    CALL_DATA_RESET_ON_STARTUP: bool = False
 
     @field_validator("JWT_SECRET")
     @classmethod

@@ -16,7 +16,7 @@ from app.core.database import get_db
 from app.db.session import mongo
 from app.models.user import User
 from app.services.call_service import (
-    call_hub, create_join_token, ensure_call_indexes, expire_stale_calls, get_call, public_call, require_livekit,
+    call_hub, cleanup_stale_calls, create_join_token, ensure_call_indexes, expire_stale_calls, get_call, public_call, purge_call_data, require_livekit,
     transition, utcnow, write_event,
 )
 
@@ -56,6 +56,11 @@ async def _notify(call: dict[str, Any], event: str) -> None:
 @router.on_event("startup")
 async def _startup() -> None:
     await ensure_call_indexes()
+    if settings.CALL_DATA_RESET_ON_STARTUP:
+        deleted = await purge_call_data()
+        # Keep the count visible in Render deploy logs so the one-time reset
+        # can be verified without exposing any document contents.
+        print(f"Call data reset completed: {deleted}")
 
 
 @router.post("")
@@ -111,6 +116,7 @@ async def call_availability(
     if not requested:
         return {}
     await mongo.verify_ready()
+    await cleanup_stale_calls()
     busy: dict[str, bool] = {str(value): False for value in requested}
     cursor = mongo.calls.find({"participant_ids": {"$in": requested}, "status": {"$in": ["ringing", "accepted", "active"]}}, {"participant_ids": 1})
     async for call in cursor:
@@ -278,6 +284,10 @@ async def livekit_webhook(request: Request, authorization: str | None = Header(d
     if room_name and mongo.enabled:
         call = await mongo.calls.find_one({"room_name": room_name})
         if call:
-            await mongo.calls.update_one({"call_id": call["call_id"]}, {"$set": {"livekit_event": event_name, "updated_at": utcnow()}})
+            now = utcnow()
+            update = {"livekit_event": event_name, "updated_at": now}
+            if event_name in {"room_finished", "room_deleted"} and call.get("status") in {"ringing", "accepted", "active"}:
+                update.update({"status": "ended", "ended_at": now, "terminal_reason": f"livekit:{event_name}"})
+            await mongo.calls.update_one({"call_id": call["call_id"]}, {"$set": update})
             await write_event(call["call_id"], f"livekit:{event_name}", 0, {"room_name": room_name})
     return {"received": True}

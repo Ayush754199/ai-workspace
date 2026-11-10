@@ -128,6 +128,46 @@ async def expire_stale_calls(user_id: int) -> None:
     )
 
 
+async def cleanup_stale_calls() -> None:
+    """Close abandoned call records so availability reflects real calls.
+
+    A browser crash can prevent the normal ``/end`` request and a missed
+    LiveKit webhook.  Only records with old activity are cleaned up; recent
+    calls remain busy.  This is intentionally bounded and never removes
+    history, allowing admins to audit the original call lifecycle.
+    """
+    if not mongo.enabled:
+        return
+    now = utcnow()
+    ring_cutoff = now - timedelta(seconds=settings.LIVEKIT_CALL_RING_TIMEOUT_SECONDS)
+    stale_cutoff = now - timedelta(seconds=settings.LIVEKIT_STALE_CALL_TIMEOUT_SECONDS)
+    await mongo.calls.update_many(
+        {"status": "ringing", "created_at": {"$lt": ring_cutoff}},
+        {"$set": {
+            "status": "missed", "missed": True, "ended_at": now,
+            "updated_at": now, "terminal_reason": "timeout",
+        }},
+    )
+    await mongo.calls.update_many(
+        {"status": {"$in": ["accepted", "active"]}, "updated_at": {"$lt": stale_cutoff}},
+        {"$set": {
+            "status": "ended", "ended_at": now, "updated_at": now,
+            "terminal_reason": "stale_cleanup",
+        }},
+    )
+
+
+async def purge_call_data() -> dict[str, int]:
+    """Delete only calling records, never users, chats, or auth data."""
+    if not mongo.enabled:
+        return {"calls": 0, "call_events": 0, "call_messages": 0}
+    deleted: dict[str, int] = {}
+    for name in ("calls", "call_events", "call_messages"):
+        result = await getattr(mongo, name).delete_many({})
+        deleted[name] = int(result.deleted_count)
+    return deleted
+
+
 async def write_event(call_id: str, event: str, actor_id: int, payload: dict[str, Any] | None = None) -> None:
     now = utcnow()
     await mongo.call_events.insert_one({

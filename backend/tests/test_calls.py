@@ -39,3 +39,36 @@ def test_ringing_call_cannot_be_ended_before_acceptance(monkeypatch):
     with pytest.raises(HTTPException) as exc:
         asyncio.run(call_service.transition(call_document("ringing"), "ended", 2))
     assert exc.value.status_code == 409
+
+
+def test_cleanup_stale_calls_closes_old_ringing_and_active_records(monkeypatch):
+    mongo = type("MongoStub", (), {"enabled": True, "calls": AsyncMock()})()
+    monkeypatch.setattr(call_service, "mongo", mongo)
+    asyncio.run(call_service.cleanup_stale_calls())
+    assert mongo.calls.update_many.await_count == 2
+    first = mongo.calls.update_many.await_args_list[0].args[0]
+    second = mongo.calls.update_many.await_args_list[1].args[0]
+    assert first["status"] == "ringing"
+    assert second["status"]["$in"] == ["accepted", "active"]
+
+
+def test_purge_call_data_only_targets_call_collections(monkeypatch):
+    class Result:
+        def __init__(self, count):
+            self.deleted_count = count
+
+    class Collection:
+        async def delete_many(self, query):
+            assert query == {}
+            return Result(3)
+
+    mongo = type("MongoStub", (), {
+        "enabled": True,
+        "calls": Collection(),
+        "call_events": Collection(),
+        "call_messages": Collection(),
+    })()
+    monkeypatch.setattr(call_service, "mongo", mongo)
+    assert asyncio.run(call_service.purge_call_data()) == {
+        "calls": 3, "call_events": 3, "call_messages": 3,
+    }
