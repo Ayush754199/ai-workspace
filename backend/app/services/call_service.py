@@ -74,6 +74,8 @@ async def ensure_call_indexes() -> None:
     await mongo.calls.create_index([("status", 1), ("created_at", 1)])
     await mongo.call_events.create_index([("call_id", 1), ("created_at", 1)])
     await mongo.call_events.create_index("event_id", unique=True)
+    await mongo.call_messages.create_index([("call_id", 1), ("created_at", 1)])
+    await mongo.call_messages.create_index("message_id", unique=True)
 
 
 def require_livekit() -> None:

@@ -36,6 +36,14 @@ class StartCallRequest(BaseModel):
         return value
 
 
+class CallMessageRequest(BaseModel):
+    content: str = Field(min_length=1, max_length=4000)
+
+
+class AddCallParticipantRequest(BaseModel):
+    participant_id: int = Field(gt=0)
+
+
 def _authorize(call: dict[str, Any], user: User) -> None:
     if int(user.id) not in [int(item) for item in call.get("participant_ids", [])]:
         raise HTTPException(status_code=403, detail="You are not a participant in this call")
@@ -62,6 +70,9 @@ async def start_call(request: StartCallRequest, current_user: User = Depends(get
     if len(users) != len(participant_ids):
         raise HTTPException(status_code=404, detail="One or more call participants were not found")
     await mongo.verify_ready()
+    busy_call = await mongo.calls.find_one({"participant_ids": {"$in": participant_ids}, "status": {"$in": ["ringing", "accepted", "active"]}})
+    if busy_call:
+        raise HTTPException(status_code=409, detail="One or more users are already busy in another call")
     if request.idempotency_key:
         existing = await mongo.calls.find_one({"initiated_by": int(current_user.id), "idempotency_key": request.idempotency_key})
         if existing:
@@ -101,7 +112,7 @@ async def call_availability(
         return {}
     await mongo.verify_ready()
     busy: dict[str, bool] = {str(value): False for value in requested}
-    cursor = mongo.calls.find({"participant_ids": {"$in": requested}, "status": {"$in": ["accepted", "active"]}}, {"participant_ids": 1})
+    cursor = mongo.calls.find({"participant_ids": {"$in": requested}, "status": {"$in": ["ringing", "accepted", "active"]}}, {"participant_ids": 1})
     async for call in cursor:
         for participant_id in call.get("participant_ids", []):
             if str(participant_id) in busy:
@@ -114,6 +125,50 @@ async def read_call(call_id: str, current_user: User = Depends(get_current_user)
     call = await get_call(call_id)
     if not call: raise HTTPException(status_code=404, detail="Call not found")
     _authorize(call, current_user)
+    return public_call(call)
+
+
+@router.get("/{call_id}/messages")
+async def list_call_messages(call_id: str, limit: int = Query(default=100, ge=1, le=200), current_user: User = Depends(get_current_user)):
+    call = await get_call(call_id)
+    if not call: raise HTTPException(status_code=404, detail="Call not found")
+    _authorize(call, current_user)
+    cursor = mongo.call_messages.find({"call_id": call_id}).sort("created_at", 1).limit(limit)
+    return [{key: value.isoformat() if isinstance(value, datetime) else value for key, value in item.items() if key != "_id"} async for item in cursor]
+
+
+@router.post("/{call_id}/messages")
+async def send_call_message(call_id: str, request: CallMessageRequest, current_user: User = Depends(get_current_user)):
+    call = await get_call(call_id)
+    if not call: raise HTTPException(status_code=404, detail="Call not found")
+    _authorize(call, current_user)
+    if call.get("status") in {"ended", "rejected", "cancelled", "missed"}:
+        raise HTTPException(status_code=409, detail="Call chat is closed")
+    message = {"message_id": secrets.token_urlsafe(18), "call_id": call_id, "sender_id": int(current_user.id), "sender_name": current_user.full_name or current_user.email or str(current_user.id), "content": request.content.strip(), "created_at": utcnow()}
+    await mongo.call_messages.insert_one(message)
+    await write_event(call_id, "message", int(current_user.id), {"message_id": message["message_id"]})
+    await call_hub.send(call.get("participant_ids", []), {"type": "call.message", "message": {key: value.isoformat() if isinstance(value, datetime) else value for key, value in message.items()}})
+    return {key: value.isoformat() if isinstance(value, datetime) else value for key, value in message.items()}
+
+
+@router.post("/{call_id}/participants")
+async def add_call_participant(call_id: str, request: AddCallParticipantRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    call = await get_call(call_id)
+    if not call: raise HTTPException(status_code=404, detail="Call not found")
+    _authorize(call, current_user)
+    if call.get("status") in {"ended", "rejected", "cancelled", "missed"}:
+        raise HTTPException(status_code=409, detail="Call has ended")
+    if request.participant_id in call.get("participant_ids", []):
+        return public_call(call)
+    participant = db.query(User).filter(User.id == request.participant_id, User.is_active.is_(True)).first()
+    if not participant: raise HTTPException(status_code=404, detail="Participant not found")
+    busy_call = await mongo.calls.find_one({"participant_ids": request.participant_id, "status": {"$in": ["ringing", "accepted", "active"]}})
+    if busy_call: raise HTTPException(status_code=409, detail="Participant is busy in another call")
+    call["participant_ids"] = [*call.get("participant_ids", []), request.participant_id]
+    call["updated_at"] = utcnow()
+    await mongo.calls.update_one({"call_id": call_id}, {"$set": {"participant_ids": call["participant_ids"], "updated_at": call["updated_at"]}})
+    await write_event(call_id, "participant_invited", int(current_user.id), {"participant_id": request.participant_id})
+    await call_hub.send([request.participant_id], {"type": "call.incoming", "call": public_call(call)})
     return public_call(call)
 
 

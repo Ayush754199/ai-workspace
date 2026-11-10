@@ -29,6 +29,7 @@ class MongoCollections:
             self.chat_history = None
             self.calls = None
             self.call_events = None
+            self.call_messages = None
             return
         try:
             self.client = AsyncIOMotorClient(settings.MONGODB_URL, serverSelectionTimeoutMS=5000)
@@ -37,6 +38,7 @@ class MongoCollections:
             self.chat_history: AsyncIOMotorCollection = self.database["chat_history"]
             self.calls: AsyncIOMotorCollection = self.database["calls"]
             self.call_events: AsyncIOMotorCollection = self.database["call_events"]
+            self.call_messages: AsyncIOMotorCollection = self.database["call_messages"]
         except Exception as exc:
             log_connection_failure(
                 exc,

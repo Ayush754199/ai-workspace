@@ -108,7 +108,7 @@ _ASSET_EXTENSIONS = {
 # (frontend/src/App.tsx). Keep in sync when a page is added.
 _SPA_PATHS = {
 	"login", "register", "dashboard", "assistant", "documents", "images", "office",
-	"research", "chat", "video-studio", "video-studio/editor", "profile", "admin",
+    "research", "chat", "calls", "video-studio", "video-studio/editor", "profile", "admin",
 }
 # The exact nested client routes (see frontend/src/App.tsx). An unknown child such
 # as /video-studio/nope must 404 rather than render the app shell.
