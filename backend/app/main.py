@@ -189,7 +189,7 @@ def ensure_schema():
 			if "project_name" not in conversation_columns:
 				connection.execute(text("ALTER TABLE ai_conversations ADD COLUMN project_name VARCHAR(120)"))
 			if "project_pinned" not in conversation_columns:
-				connection.execute(text("ALTER TABLE ai_conversations ADD COLUMN project_pinned BOOLEAN NOT NULL DEFAULT 0"))
+				connection.execute(text("ALTER TABLE ai_conversations ADD COLUMN project_pinned BOOLEAN NOT NULL DEFAULT FALSE"))
 	if "usage_logs" in inspector.get_table_names():
 		usage_columns = {column["name"] for column in inspector.get_columns("usage_logs")}
 		with engine.begin() as connection:
