@@ -13,7 +13,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.models.user import User, UserFeaturePermission
 from app.models.room import AdminAuditLog, Message, Room, RoomInvite
-from app.models.gateway import CapabilityQuota, Provider, ProviderBudget, ProviderModel, UserQuota
+from app.models.gateway import CapabilityQuota, ImagePremiumRequest, Provider, ProviderBudget, ProviderModel, UserQuota
 from app.services.ai_gateway.quota import QuotaService
 from app.services.ai_gateway.openrouter_catalog import discover_free_models
 from app.services.ai_gateway import GatewayUnavailableError
@@ -36,6 +36,10 @@ class QuotaUpdate(BaseModel):
 class CapabilityQuotaUpdate(BaseModel):
     capability: str = Field(pattern="^(image|video|search|extraction|research)$")
     daily_limit: int = Field(ge=0)
+
+class ImagePremiumDecision(BaseModel):
+    approved: bool
+    daily_limit: int = Field(default=20, ge=0)
 
 
 
@@ -68,6 +72,23 @@ def serialize_user(user: User) -> dict:
 @router.get("/users")
 def list_users(_: User = Depends(get_current_admin), db: Session = Depends(get_db)):
     return [serialize_user(user) for user in db.query(User).order_by(User.created_at.desc()).all()]
+
+@router.get("/image-premium-requests")
+def list_image_premium_requests(_: User = Depends(get_current_admin), db: Session = Depends(get_db)):
+    rows = db.query(ImagePremiumRequest).order_by(ImagePremiumRequest.requested_at.desc()).all()
+    return [{"user_id": row.user_id, "status": row.status, "daily_limit": row.daily_limit, "requested_at": row.requested_at.isoformat() if row.requested_at else None} for row in rows]
+
+@router.patch("/image-premium-requests/{user_id}")
+def decide_image_premium_request(user_id: int, payload: ImagePremiumDecision, _: User = Depends(get_current_admin), db: Session = Depends(get_db)):
+    row = db.query(ImagePremiumRequest).filter(ImagePremiumRequest.user_id == user_id).first()
+    if row is None:
+        row = ImagePremiumRequest(user_id=user_id)
+        db.add(row)
+    row.status = "approved" if payload.approved else "rejected"
+    row.daily_limit = payload.daily_limit
+    row.reviewed_at = datetime.utcnow()
+    db.commit()
+    return {"user_id": user_id, "status": row.status, "daily_limit": row.daily_limit}
 
 
 @router.get("/analytics")

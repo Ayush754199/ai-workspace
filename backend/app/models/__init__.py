@@ -1,6 +1,8 @@
 from app.models.gateway import (
     AdminSetting,
     CapabilityQuota,
+    ImageUsage,
+    ImagePremiumRequest,
     ChatQuota,
     CreditTransaction,
     MediaJob,
@@ -15,6 +17,6 @@ from app.models.gateway import (
 )
 
 __all__ = [
-    "AdminSetting", "CapabilityQuota", "ChatQuota", "CreditTransaction", "MediaJob", "Provider", "ProviderHealth",
+    "AdminSetting", "CapabilityQuota", "ImageUsage", "ImagePremiumRequest", "ChatQuota", "CreditTransaction", "MediaJob", "Provider", "ProviderHealth",
     "ProviderModel", "ProviderBudget", "ProviderBudgetReservation", "QuotaReservation", "UsageLog", "UserQuota",
 ]

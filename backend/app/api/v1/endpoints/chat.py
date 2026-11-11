@@ -6,7 +6,7 @@ import base64
 import uuid
 import json
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -22,7 +22,8 @@ from app.core.database import get_db
 from app.core.config import settings
 from app.services.ai_gateway.quota import QuotaService, QuotaError
 from app.db.session import mongo
-from app.models.user import User, UserFeaturePermission
+from app.models.user import User
+from app.models.gateway import ImageUsage, ImagePremiumRequest
 from app.services.document_generator import GENERATORS
 import requests
 
@@ -48,6 +49,18 @@ except ModuleNotFoundError:
     from logger import log_connection_failure
 
 router = APIRouter(prefix="/chat", tags=["chat"])
+
+@router.post("/image/premium-request")
+def request_image_premium(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    request = db.query(ImagePremiumRequest).filter(ImagePremiumRequest.user_id == current_user.id).first()
+    if request is None:
+        request = ImagePremiumRequest(user_id=current_user.id, status="pending")
+        db.add(request)
+    elif request.status != "approved":
+        request.status = "pending"
+        request.requested_at = datetime.now(timezone.utc)
+    db.commit()
+    return {"status": request.status, "daily_limit": request.daily_limit}
 # Legacy direct-provider chat paths (/multimodal, /stream, /image) are gated. The
 # document export and image endpoints keep working below; only provider calls are
 # disabled when LEGACY_DIRECT_AI_ENABLED is false.
@@ -289,6 +302,7 @@ async def multimodal_chat(
 async def image_studio(
     prompt: str = Form(...),
     image: UploadFile | None = File(default=None),
+    conversation_id: int | None = Form(default=None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -300,6 +314,19 @@ async def image_studio(
     prompt = prompt.strip()
     if not prompt:
         raise HTTPException(status_code=400, detail="A prompt is required")
+    if conversation_id is None:
+        raise HTTPException(status_code=400, detail="Image generation must be started from a chat")
+    today = date.today()
+    chat_count = db.query(ImageUsage).filter(ImageUsage.user_id == current_user.id, ImageUsage.conversation_id == conversation_id, ImageUsage.created_at >= datetime.combine(today, datetime.min.time())).count()
+    used_chats = {row[0] for row in db.query(ImageUsage.conversation_id).filter(ImageUsage.user_id == current_user.id, ImageUsage.created_at >= datetime.combine(today, datetime.min.time()), ImageUsage.conversation_id.isnot(None)).distinct().all()}
+    access = db.query(ImageUsage).filter(ImageUsage.user_id == current_user.id, ImageUsage.created_at >= datetime.combine(today, datetime.min.time())).count()
+    premium = db.query(ImagePremiumRequest).filter(ImagePremiumRequest.user_id == current_user.id, ImagePremiumRequest.status == "approved").first()
+    if not current_user.is_admin and premium is not None and access >= premium.daily_limit:
+        raise HTTPException(status_code=402, detail={"code": "premium_daily_limit_reached", "message": "Your approved daily image limit has been reached."})
+    if not current_user.is_admin and premium is None and len(used_chats) >= 3 and conversation_id not in used_chats:
+        raise HTTPException(status_code=402, detail={"code": "premium_approval_required", "message": "Your 3 free image chats are used. Ask an administrator to approve premium image access."})
+    if not current_user.is_admin and premium is None and chat_count >= 4:
+        raise HTTPException(status_code=402, detail={"code": "premium_approval_required", "message": "This chat has used its 4 free image actions. Ask an administrator for premium access."})
     request_id = uuid.uuid4().hex
     reservation = None
     try:
@@ -324,18 +351,6 @@ async def image_studio(
             QuotaService().release(db, reservation.reservation_id, failure=True)
             raise HTTPException(status_code=400, detail="Invalid image file") from exc
 
-    permission = (
-        db.query(UserFeaturePermission)
-        .filter(
-            UserFeaturePermission.user_id == current_user.id,
-            UserFeaturePermission.feature == "image_generation",
-        )
-        .first()
-    )
-    if not permission or not permission.enabled:
-        QuotaService().release(db, reservation.reservation_id, failure=True)
-        raise HTTPException(status_code=403, detail="image_generation is disabled for this user")
-
     if not settings.IMAGE_ORCHESTRATION_ENABLED:
         QuotaService().release(db, reservation.reservation_id, failure=True)
         raise HTTPException(status_code=503, detail="Verified image orchestration is disabled by server configuration")
@@ -355,6 +370,8 @@ async def image_studio(
             reservation.reservation_id,
             detail={"operation": "image_editing" if image is not None else "image_generation", "provider": result.provider, "model": result.model},
         )
+        db.add(ImageUsage(user_id=current_user.id, conversation_id=conversation_id))
+        db.commit()
         return StreamingResponse(io.BytesIO(result.data), media_type="image/png")
     except ImageOrchestrationError as exc:
         QuotaService().release(db, reservation.reservation_id, failure=True)

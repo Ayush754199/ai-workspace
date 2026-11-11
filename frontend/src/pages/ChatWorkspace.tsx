@@ -80,6 +80,7 @@ const ChatWorkspace: React.FC = () => {
   const [sending, setSending] = useState(false);
   const [researchStatus, setResearchStatus] = useState("");
   const [error, setError] = useState("");
+  const [premiumNotice, setPremiumNotice] = useState(false);
   const [search, setSearch] = useState("");
   const [showArchived, setShowArchived] = useState(false);
   // Web search is enabled by default so current answers can use fresh sources.
@@ -285,7 +286,7 @@ const ChatWorkspace: React.FC = () => {
         setResearchStatus("Editing your image…");
         const sourceFile = attachmentFiles.current.get(imageAttachment.id);
         if (!sourceFile) throw new Error("The attached image is no longer available. Please attach it again.");
-        const output = await imageApi.generate(token, content || "Improve this image", sourceFile);
+        const output = await imageApi.generate(token, content || "Improve this image", sourceFile, conversationId);
         const imageUrl = URL.createObjectURL(output);
         attachmentIds.forEach((id) => attachmentFiles.current.delete(id));
         setMessages((current) => current.map((message) => message.id === placeholder.id
@@ -353,6 +354,7 @@ const ChatWorkspace: React.FC = () => {
           return;
         }
         const text = err?.message || "The model did not answer";
+        if (String(text).toLowerCase().includes("premium") || String(text).toLowerCase().includes("free image")) setPremiumNotice(true);
         const partialArtifact = parseArtifact(typeof text === "string" ? text : "");
         setMessages((current) =>
           current.map((message) =>
@@ -491,7 +493,11 @@ const ChatWorkspace: React.FC = () => {
   const projectConversation = async (conversation: Conversation) => {
     if (!token) return;
     try {
-      await chatV2.updateConversation(token, conversation.id, { is_pinned: !conversation.is_pinned });
+      const current = conversation.project_name || "";
+      const name = window.prompt("Project name", current);
+      if (name === null) return;
+      const projectName = name.trim().slice(0, 120) || null;
+      await chatV2.updateConversation(token, conversation.id, { project_name: projectName, project_pinned: Boolean(projectName) });
       loadConversations();
     } catch (err: any) {
       setError(err?.message || "Could not update project");
@@ -499,7 +505,7 @@ const ChatWorkspace: React.FC = () => {
   };
 
   const filtered = useMemo(
-    () => conversations.filter((conversation) => conversation.title.toLowerCase().includes(search.trim().toLowerCase())),
+    () => conversations.filter((conversation) => `${conversation.title} ${conversation.project_name || ""}`.toLowerCase().includes(search.trim().toLowerCase())),
     [conversations, search],
   );
 
@@ -546,10 +552,11 @@ const ChatWorkspace: React.FC = () => {
                 <span className="cw-conv-icon">{conversation.is_pinned ? "★" : "◌"}</span>
                 <span className="cw-conv-copy">
                   <strong>{conversation.title}</strong>
-                  <small>{conversation.is_archived ? "Archived" : conversation.provider || "local"} · {formatTime(conversation.updated_at ?? null)}</small>
+                  <small>{conversation.project_name ? `${conversation.project_name} · ` : ""}{conversation.is_archived ? "Archived" : conversation.provider || "local"} · {formatTime(conversation.updated_at ?? null)}</small>
                 </span>
               </button>
               <div className="cw-conv-actions">
+                <button title={conversation.is_pinned ? "Unpin" : "Pin"} aria-label={`${conversation.is_pinned ? "Unpin" : "Pin"} ${conversation.title}`} onClick={() => chatV2.updateConversation(token!, conversation.id, { is_pinned: !conversation.is_pinned }).then(loadConversations).catch((err) => setError(err?.message || "Could not pin chat"))}>{conversation.is_pinned ? "Pinned" : "Pin"}</button>
                 <button title="Archive" aria-label={`Archive ${conversation.title}`} onClick={() => archiveConversation(conversation)}>◱</button>
                 <button title="Delete" aria-label={`Delete ${conversation.title}`} className="cw-conv-delete" onClick={() => deleteConversation(conversation.id)}>🗑</button>
               </div>
@@ -589,6 +596,14 @@ const ChatWorkspace: React.FC = () => {
         </header>
 
         <div className="cw-messages">
+          {messages.length === 0 && !loadingMessages && (
+            <div className="cw-welcome" aria-label="Welcome message">
+              <div className="cw-welcome-glow" />
+              <span className="cw-welcome-mark">AI</span>
+              <h2>{new Date().getMonth() === 11 ? `Happy holidays, ${(user?.full_name || "there").split(" ")[0]}` : `Hello, ${(user?.full_name || "there").split(" ")[0]}`}</h2>
+              <p>How can I help you today?</p>
+            </div>
+          )}
           {loadingMessages && messages.length === 0 && (
             <div className="cw-skeleton">
               {[0, 1, 2].map((row) => (
@@ -676,6 +691,7 @@ const ChatWorkspace: React.FC = () => {
         </div>
 
         {error && <div className="cw-error" role="alert">{error}<button onClick={() => setError("")} aria-label="Dismiss error">✕</button><button className="cw-retry" onClick={() => loadConversations()}>Retry</button></div>}
+        {premiumNotice && <div className="cw-premium-modal" role="dialog" aria-modal="true"><div><h3>Premium image access</h3><p>Your free image allowance is complete. Request approval from the administrator to continue.</p><button onClick={() => imageApi.requestPremium(token!).then(() => { setPremiumNotice(false); setError("Premium request sent to the administrator."); }).catch((err) => setError(err?.message || "Could not send request"))}>Request approval</button><button onClick={() => setPremiumNotice(false)}>Cancel</button></div></div>}
 
         {artifactView && (
           <aside className="cw-artifact-pane" aria-label="File preview">

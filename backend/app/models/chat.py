@@ -20,6 +20,8 @@ class AiConversation(Base):
     system_prompt = Column(Text, nullable=True)
     mode = Column(String(40), nullable=False, default="chat")
     is_pinned = Column(Boolean, nullable=False, default=False)
+    project_name = Column(String(120), nullable=True, index=True)
+    project_pinned = Column(Boolean, nullable=False, default=False)
     is_archived = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

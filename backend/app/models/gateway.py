@@ -54,6 +54,24 @@ class CapabilityQuota(Base):
     __table_args__ = (UniqueConstraint("user_id", "capability", name="uq_user_capability_quota"),)
 
 
+class ImageUsage(Base):
+    __tablename__ = "image_usages"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    conversation_id = Column(Integer, ForeignKey("ai_conversations.id"), nullable=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class ImagePremiumRequest(Base):
+    __tablename__ = "image_premium_requests"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False, index=True)
+    status = Column(String(20), nullable=False, default="pending")
+    daily_limit = Column(Integer, nullable=False, default=20)
+    requested_at = Column(DateTime(timezone=True), server_default=func.now())
+    reviewed_at = Column(DateTime(timezone=True), nullable=True)
+
+
 class ChatQuota(Base):
     __tablename__ = "chat_quotas"
     id = Column(Integer, primary_key=True)

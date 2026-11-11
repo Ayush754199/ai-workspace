@@ -877,4 +877,17 @@ html, body, #root { min-width: 0; max-width: 100%; overflow-x: hidden; }
   .cw-starter-grid strong { font-size: 11px; }
   .cw-starter-grid small { display: none; }
 }
-.call-incoming-icon{display:grid;place-items:center;width:58px;height:58px;border-radius:50%;background:#25d366;color:#fff;animation:call-pulse 1.5s ease-in-out infinite}.call-incoming button:first-child{background:#25d366;border-color:#25d366}.call-outgoing-icon .call-icon,.call-incoming-icon .call-icon{animation:call-icon-wiggle 1.8s ease-in-out infinite}@keyframes call-icon-wiggle{0%,100%{transform:rotate(0)}12%{transform:rotate(-12deg)}24%{transform:rotate(10deg)}36%{transform:rotate(-6deg)}48%{transform:rotate(0)}}
+.shell-account { position: relative; }
+.shell-account-button { display:flex; align-items:center; gap:9px; width:100%; padding:8px; border:1px solid transparent; border-radius:8px; color:inherit; background:transparent; text-align:left; cursor:pointer; }
+.shell-account-button:hover { border-color:#303a54; background:#151b2a; }
+.shell-account-menu,.mobile-account-menu { display:grid; gap:4px; padding:6px; border:1px solid #303a54; border-radius:8px; background:#111725; box-shadow:0 12px 30px #0006; }
+.shell-account-menu-item,.mobile-account-menu a,.mobile-account-menu button { padding:8px 9px; border:0; color:#cbd3e7; background:transparent; text-decoration:none; text-align:left; cursor:pointer; font:inherit; }
+.shell-account-menu-item:hover,.mobile-account-menu a:hover,.mobile-account-menu button:hover { color:#fff; background:#202a43; border-radius:5px; }
+.mobile-account-name { border:0; cursor:pointer; }
+.mobile-account-menu { position:absolute; top:50px; right:12px; z-index:20; }
+.cw-premium-modal { position:fixed; inset:0; z-index:40; display:grid; place-items:center; padding:20px; background:#050812aa; }.cw-premium-modal>div { max-width:390px; padding:24px; border:1px solid #5364a2; border-radius:14px; background:#111827; box-shadow:0 20px 70px #0008; }.cw-premium-modal h3 { margin:0 0 8px; color:#fff; }.cw-premium-modal p { color:#aeb8ce; line-height:1.5; }.cw-premium-modal button { margin:8px 8px 0 0; padding:9px 13px; border:1px solid #46557f; border-radius:7px; color:#e7ebff; background:#1d2948; cursor:pointer; }
+.cw-welcome { position:relative; display:grid; place-items:center; align-content:center; min-height:310px; overflow:hidden; text-align:center; }
+.cw-welcome-glow { position:absolute; width:260px; height:180px; border-radius:50%; background:radial-gradient(circle,#7c6cff44,transparent 70%); animation:welcome-float 5s ease-in-out infinite; }
+.cw-welcome-mark { position:relative; display:grid; place-items:center; width:58px; height:58px; border-radius:18px; color:#fff; background:linear-gradient(135deg,#9275ff,#42b8ff); box-shadow:0 0 35px #7d75ff66; font-weight:800; }
+.cw-welcome h2,.cw-welcome p { position:relative; margin:14px 0 0; }.cw-welcome h2 { color:#eef1fa; font-size:24px; }.cw-welcome p { color:#8e99b3; font-size:13px; }
+@keyframes welcome-float { 0%,100%{transform:translateY(4px) scale(.95);opacity:.65}50%{transform:translateY(-10px) scale(1.08);opacity:1} }

@@ -6,6 +6,7 @@ import WorkspaceFeatureMenu from "./WorkspaceFeatureMenu";
 const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, logout } = useAuth();
   const [mobileNavOpen, setMobileNavOpen] = React.useState(false);
+  const [accountOpen, setAccountOpen] = React.useState(false);
   const navClass = ({ isActive }: { isActive: boolean }) => `shell-nav-item${isActive ? " active" : ""}`;
 
   return (
@@ -25,11 +26,11 @@ const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           {user?.is_admin && <NavLink className={navClass} to="/admin"><span>⌘</span><span className="shell-nav-text">Admin</span></NavLink>}
         </nav>
         <div className="shell-account">
-          <NavLink className={navClass} to="/profile">
+          <button className="shell-account-button" type="button" aria-expanded={accountOpen} onClick={() => setAccountOpen((open) => !open)}>
             <span className="account-avatar">{(user?.full_name || user?.email || "U").slice(0, 1).toUpperCase()}</span>
             <span className="account-copy"><strong>{user?.full_name || "Account"}</strong><small>{user?.email}</small></span>
-          </NavLink>
-          <button className="shell-logout" onClick={logout}>Sign out</button>
+          </button>
+          {accountOpen && <div className="shell-account-menu"><NavLink className="shell-account-menu-item" to="/profile" onClick={() => setAccountOpen(false)}>Account settings</NavLink><button className="shell-account-menu-item" onClick={logout}>Sign out</button></div>}
         </div>
       </aside>
     <main className="workspace-main">
@@ -38,10 +39,11 @@ const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         {mobileNavOpen ? "×" : "☰"}
       </button>
       {mobileNavOpen && <button className="mobile-nav-backdrop" type="button" aria-label="Close navigation" onClick={() => setMobileNavOpen(false)} />}
-      <div className="mobile-account-name" title={user?.full_name || user?.email || "Account"}>
+      <button className="mobile-account-name" type="button" title={user?.full_name || user?.email || "Account"} onClick={() => setAccountOpen((open) => !open)}>
         <span className="account-avatar">{(user?.full_name || user?.email || "U").slice(0, 1).toUpperCase()}</span>
         <span>{user?.full_name || user?.email || "Account"}</span>
-      </div>
+      </button>
+      {accountOpen && <div className="mobile-account-menu"><NavLink to="/profile" onClick={() => setAccountOpen(false)}>Account settings</NavLink><button onClick={logout}>Sign out</button></div>}
       {children}
     </main>
     </div>

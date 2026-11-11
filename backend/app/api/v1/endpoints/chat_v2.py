@@ -51,6 +51,8 @@ class ConversationUpdate(BaseModel):
     model: str | None = None
     system_prompt: str | None = None
     is_pinned: bool | None = None
+    project_name: str | None = Field(default=None, max_length=120)
+    project_pinned: bool | None = None
     is_archived: bool | None = None
 
 
@@ -106,6 +108,8 @@ def _serialize_conversation(conversation: AiConversation, count: int = 0) -> dic
         "mode": conversation.mode,
         "system_prompt": conversation.system_prompt,
         "is_pinned": conversation.is_pinned,
+        "project_name": conversation.project_name,
+        "project_pinned": conversation.project_pinned,
         "is_archived": conversation.is_archived,
         "message_count": count,
         "created_at": conversation.created_at.isoformat() if conversation.created_at else None,
@@ -146,7 +150,7 @@ def list_conversations(
     query = db.query(AiConversation).filter(AiConversation.user_id == user.id)
     if not include_archived:
         query = query.filter(AiConversation.is_archived.is_(False))
-    rows = query.order_by(AiConversation.is_pinned.desc(), AiConversation.updated_at.desc()).all()
+    rows = query.order_by(AiConversation.project_pinned.desc(), AiConversation.is_pinned.desc(), AiConversation.updated_at.desc()).all()
     return [_serialize_conversation(row) for row in rows]
 
 

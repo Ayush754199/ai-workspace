@@ -183,6 +183,13 @@ def ensure_schema():
 			if "daily_window" not in quota_columns:
 				connection.execute(text("ALTER TABLE user_quotas ADD COLUMN daily_window DATE"))
 				connection.execute(text("UPDATE user_quotas SET daily_window = DATE('now') WHERE daily_window IS NULL"))
+	if "ai_conversations" in inspector.get_table_names():
+		conversation_columns = {column["name"] for column in inspector.get_columns("ai_conversations")}
+		with engine.begin() as connection:
+			if "project_name" not in conversation_columns:
+				connection.execute(text("ALTER TABLE ai_conversations ADD COLUMN project_name VARCHAR(120)"))
+			if "project_pinned" not in conversation_columns:
+				connection.execute(text("ALTER TABLE ai_conversations ADD COLUMN project_pinned BOOLEAN NOT NULL DEFAULT 0"))
 	if "usage_logs" in inspector.get_table_names():
 		usage_columns = {column["name"] for column in inspector.get_columns("usage_logs")}
 		with engine.begin() as connection:

@@ -43,6 +43,8 @@ export type Conversation = {
   mode: string;
   system_prompt: string | null;
   is_pinned: boolean;
+  project_name?: string | null;
+  project_pinned?: boolean;
   is_archived: boolean;
   message_count?: number;
   updated_at?: string | null;
@@ -217,6 +219,7 @@ export const documentsApi = {
 };
 
 export const imageApi = {
+  requestPremium: (token: string) => request<{ status: string; daily_limit: number }>(token, "/chat/image/premium-request", { method: "POST" }),
   understand: async (token: string, file: File, question: string) => {
     const form = new FormData();
     form.append("file", file);
@@ -262,10 +265,11 @@ export const imageApi = {
       { method: "POST", body: form },
     );
   },
-  generate: async (token: string, prompt: string, image?: File | null) => {
+  generate: async (token: string, prompt: string, image?: File | null, conversationId?: number | null) => {
     const form = new FormData();
     form.append("prompt", prompt);
     if (image) form.append("image", image);
+    if (conversationId != null) form.append("conversation_id", String(conversationId));
     const response = await fetch(`${apiBaseUrl}/api/v1/chat/image`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },

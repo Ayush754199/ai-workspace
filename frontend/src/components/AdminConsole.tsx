@@ -22,6 +22,7 @@ type LogRow = { id: number; user_id: number | null; provider: string; model: str
 type UserRow = { id: number; email: string; full_name: string | null; role: string; is_active: boolean; is_admin: boolean; image_generation?: boolean; video_generation?: boolean };
 type CapabilityQuota = { daily_limit: number; daily_used: number; reserved: number };
 type Quota = { daily_limit: number; per_chat_limit: number; daily_used: number; image: CapabilityQuota; video: CapabilityQuota };
+type ImageRequest = { user_id: number; status: string; daily_limit: number; requested_at: string | null };
 
 const FEATURES = ["research", "images", "documents", "office", "voice", "video_generation"] as const;
 
@@ -40,6 +41,7 @@ const AdminConsole: React.FC<{ tab: "providers" | "quotas" | "usage" | "logs" | 
   const [users, setUsers] = useState<UserRow[]>([]);
   const [selectedUser, setSelectedUser] = useState<number | null>(null);
   const [quota, setQuota] = useState<Quota | null>(null);
+  const [imageRequests, setImageRequests] = useState<ImageRequest[]>([]);
   const [usage, setUsage] = useState<Usage | null>(null);
   const [budgetReport, setBudgetReport] = useState<BudgetReport | null>(null);
   const [logs, setLogs] = useState<LogRow[]>([]);
@@ -90,7 +92,8 @@ const AdminConsole: React.FC<{ tab: "providers" | "quotas" | "usage" | "logs" | 
   const loadQuotas = useCallback(async () => {
     if (!token) return;
     await run(async () => {
-      const [userRows, permissionRows] = await Promise.all([request("/users"), request("/video/users")]);
+      const [userRows, permissionRows, requestRows] = await Promise.all([request("/users"), request("/video/users"), request("/image-premium-requests")]);
+      setImageRequests(requestRows);
       const permissions = new Map(permissionRows.map((row: UserRow) => [row.id, row]));
       setUsers(userRows.map((user: UserRow) => ({ ...user, image_generation: permissions.get(user.id)?.image_generation ?? false, video_generation: permissions.get(user.id)?.video_generation ?? false })));
     });
@@ -315,6 +318,11 @@ const AdminConsole: React.FC<{ tab: "providers" | "quotas" | "usage" | "logs" | 
                 <span className={user.is_active ? "status-on" : "status-off"}>{user.is_active ? "Active" : "Disabled"}</span>
               </button>
             ))}
+          </article>
+          <article className="admin-card">
+            <h2>Premium image requests</h2>
+            {imageRequests.map((item) => <div className="admin-row" key={item.user_id}><div><strong>User #{item.user_id}</strong><small>{item.status} · default {item.daily_limit}/day</small></div><button className="status-on" onClick={() => void run(async () => { await request(`/image-premium-requests/${item.user_id}`, { method: "PATCH", body: JSON.stringify({ approved: true, daily_limit: item.daily_limit || 20 }) }); setImageRequests((rows) => rows.map((row) => row.user_id === item.user_id ? { ...row, status: "approved" } : row)); })}>Approve</button></div>)}
+            {imageRequests.length === 0 && <p className="admin-hint">No premium requests.</p>}
           </article>
           <article className="admin-card">
             <h2>Limits</h2>

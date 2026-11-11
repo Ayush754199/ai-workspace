@@ -81,7 +81,7 @@ const ChatNavigationDrawer: React.FC<Props> = ({
               {menuId === conversation.id && (
                 <div className="cw-drawer-context-menu" role="menu">
                   <button type="button" role="menuitem" onClick={() => closeAnd(() => onArchiveConversation(conversation))}>{conversation.is_archived ? "Restore" : "Archive"}</button>
-                  <button type="button" role="menuitem" onClick={() => closeAnd(() => onProjectConversation(conversation))}>{conversation.is_pinned ? "Remove from project" : "Project"}</button>
+                  <button type="button" role="menuitem" onClick={() => closeAnd(() => onProjectConversation(conversation))}>{conversation.project_name ? "Rename project" : "Add to project"}</button>
                   <button type="button" role="menuitem" className="danger" onClick={() => closeAnd(() => onDeleteConversation(conversation.id))}>Delete</button>
                 </div>
               )}
