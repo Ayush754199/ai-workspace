@@ -7,7 +7,7 @@ import { voiceApi } from "../api/workspaceApi";
  * Both call the backend; when the server has no STT/TTS provider the error is
  * shown as-is instead of pretending the feature works.
  */
-const VoiceControls: React.FC<{ onTranscript: (text: string) => void; textToRead?: string }> = ({ onTranscript, textToRead }) => {
+const VoiceControls: React.FC<{ onTranscript: (text: string) => void; onVoiceSubmit?: (text: string) => void; textToRead?: string; showRecord?: boolean }> = ({ onTranscript, onVoiceSubmit, textToRead, showRecord = true }) => {
   const { token } = useAuth();
   const [recording, setRecording] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -24,7 +24,7 @@ const VoiceControls: React.FC<{ onTranscript: (text: string) => void; textToRead
       .then((data) =>
         setAvailable({
           stt: Boolean(data.stt.groq || data.stt.gemini),
-          tts: Boolean(data.tts.edge_tts || data.tts.system_say || data.tts.gemini),
+            tts: Boolean(data.tts.edge_tts || data.tts.system_say || data.tts.gemini || data.tts.pollinations),
         }),
       )
       .catch(() => setAvailable({ stt: false, tts: false }));
@@ -40,14 +40,15 @@ const VoiceControls: React.FC<{ onTranscript: (text: string) => void; textToRead
     if (!token) return;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream, { mimeType: MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "" });
+      const mimeType = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg"].find((value) => MediaRecorder.isTypeSupported(value)) || "";
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
       chunksRef.current = [];
       recorder.ondataavailable = (event) => {
         if (event.data.size) chunksRef.current.push(event.data);
       };
       recorder.onstop = async () => {
         stream.getTracks().forEach((track) => track.stop());
-        const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+        const blob = new Blob(chunksRef.current, { type: recorder.mimeType || mimeType || "audio/webm" });
         if (!blob.size) return;
         setBusy(true);
         setStatus("Transcribing…");
@@ -55,6 +56,7 @@ const VoiceControls: React.FC<{ onTranscript: (text: string) => void; textToRead
           const result = await voiceApi.transcribe(token, blob);
           if (result.text) {
             onTranscript(result.text.trim());
+            onVoiceSubmit?.(result.text.trim());
             setStatus(`Transcribed with ${result.engine}`);
           } else setStatus("No speech detected");
         } catch (error: any) {
@@ -100,7 +102,7 @@ const VoiceControls: React.FC<{ onTranscript: (text: string) => void; textToRead
 
   return (
     <div className="voice-controls">
-      <button
+      {showRecord && <button
         type="button"
         className={`cw-icon ${recording ? "recording" : ""}`}
         title={recording ? "Stop recording" : available?.stt === false ? "Speech-to-text is not configured on the server" : "Dictate with your voice"}
@@ -108,7 +110,7 @@ const VoiceControls: React.FC<{ onTranscript: (text: string) => void; textToRead
         disabled={busy || available?.stt === false}
       >
         {recording ? "■" : "🎙"}
-      </button>
+      </button>}
       {textToRead !== undefined && (
         <button
           type="button"

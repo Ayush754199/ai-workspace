@@ -682,6 +682,7 @@ ALLOWED_ATTACHMENT_TYPES = {
     "audio/ogg": "audio",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "document",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "document",
+    "application/vnd.ms-excel.sheet.macroEnabled.12": "document",
     "application/vnd.openxmlformats-officedocument.presentationml.presentation": "document",
 }
 
@@ -702,6 +703,7 @@ ATTACHMENT_EXTENSIONS = {
     "ogg": "audio",
     "docx": "document",
     "xlsx": "document",
+    "xlsm": "document",
     "pptx": "document",
 }
 
@@ -752,7 +754,7 @@ def _extract_upload_text(kind: str, data: bytes, filename: str) -> str:
         lower = filename.lower()
         if lower.endswith(".docx"):
             return _docs.extract_docx_text(data)
-        if lower.endswith(".xlsx"):
+        if lower.endswith((".xlsx", ".xlsm")):
             return _docs.extract_xlsx_text(data)
         if lower.endswith(".pptx"):
             return _docs.extract_pptx_text(data)

@@ -74,6 +74,7 @@ const ChatWorkspace: React.FC = () => {
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [uploadingNames, setUploadingNames] = useState<string[]>([]);
   const [uploadingFiles, setUploadingFiles] = useState(0);
   const attachmentFiles = useRef(new Map<number, File>());
   const [sending, setSending] = useState(false);
@@ -90,11 +91,11 @@ const ChatWorkspace: React.FC = () => {
   const [copiedId, setCopiedId] = useState<number | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{ id: number; title: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
-  const [notice, setNotice] = useState("");
   const [chatRoomsOpen, setChatRoomsOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [searchParams] = useSearchParams();
   const [artifactCopied, setArtifactCopied] = useState(false);
+  const skipNextConversationLoadRef = useRef<number | null>(null);
   const artifactFrames = useRef(new Map<number, HTMLIFrameElement>());
   const artifactView = useMemo(() => {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -139,6 +140,10 @@ const ChatWorkspace: React.FC = () => {
   useEffect(() => {
     if (!token || activeId == null) {
       setMessages([]);
+      return;
+    }
+    if (skipNextConversationLoadRef.current === activeId) {
+      skipNextConversationLoadRef.current = null;
       return;
     }
     let cancelled = false;
@@ -199,8 +204,8 @@ const ChatWorkspace: React.FC = () => {
     const selected = Array.from(files);
     if (!selected.length) return;
     setError("");
-    setNotice(selected.length === 1 ? `Uploading ${selected[0].name}…` : `Uploading ${selected.length} files…`);
     setUploadingFiles(selected.length);
+    setUploadingNames((current) => [...current, ...selected.map((file) => file.name)]);
     for (const file of selected) {
       try {
         const uploaded = await chatV2.upload(token, file, activeId ?? undefined);
@@ -212,9 +217,12 @@ const ChatWorkspace: React.FC = () => {
         setError(`${file.name}: ${message}`);
       } finally {
         setUploadingFiles((current) => Math.max(0, current - 1));
+        setUploadingNames((current) => {
+          const index = current.indexOf(file.name);
+          return index < 0 ? current : [...current.slice(0, index), ...current.slice(index + 1)];
+        });
       }
     }
-    setNotice((current) => current.startsWith("Uploading ") ? "File attached — add your instruction and press Send." : current);
   };
 
   const send = async (override?: string) => {
@@ -224,9 +232,13 @@ const ChatWorkspace: React.FC = () => {
     let conversationId = activeId;
     if (conversationId == null) {
       try {
-        const conversation = await chatV2.createConversation(token, content.slice(0, 60) || "New chat");
+        // The first prompt belongs in the message stream, never in the
+        // conversation-creation request. The backend generates the title after
+        // the first answer has been persisted.
+        const conversation = await chatV2.createConversation(token, "New chat");
         setConversations((current) => [conversation, ...current]);
         conversationId = conversation.id;
+        skipNextConversationLoadRef.current = conversation.id;
         setActiveId(conversation.id);
       } catch (err: any) {
         setError(err?.message || "Could not start a conversation");
@@ -414,7 +426,6 @@ const ChatWorkspace: React.FC = () => {
     try {
       const blob = await (await fetch(url)).blob();
       await attachFiles([new File([blob], "previous-image.png", { type: blob.type || "image/png" })]);
-      setNotice("Image attached — describe what you want and press Send.");
     } catch {
       setError("Could not reuse this image");
     }
@@ -593,8 +604,7 @@ const ChatWorkspace: React.FC = () => {
               <div className="cw-msg-avatar">{message.role === "user" ? (user?.email || "U").slice(0, 1).toUpperCase() : "✦"}</div>
               <div className="cw-msg-body">
                 <div className="cw-msg-head">
-                  <strong>{message.role === "user" ? "You" : message.provider ? `${message.provider}` : "Assistant"}</strong>
-                  {message.role === "assistant" && message.model && !message.pending && <em>{message.model}</em>}
+                  <strong>{message.role === "user" ? "You" : "Assistant"}</strong>
                   <small>{formatTime(message.created_at)}</small>
                 </div>
                 {message.attachments?.length > 0 && (
@@ -648,6 +658,7 @@ const ChatWorkspace: React.FC = () => {
                   <div className="cw-msg-actions">
                     <button onClick={() => copy(message)}>{copiedId === message.id ? "✓ Copied" : "⧉ Copy"}</button>
                     <button onClick={() => regenerate(message.id)} disabled={sending}>↻ Regenerate</button>
+                    {message.content && <VoiceControls showRecord={false} textToRead={message.content} onTranscript={() => undefined} />}
                     {message.content && (
                       <a
                         href={`data:text/markdown;charset=utf-8,${encodeURIComponent(message.content)}`}
@@ -709,8 +720,14 @@ const ChatWorkspace: React.FC = () => {
             }}
           >
             <input className="cw-visually-hidden" type="checkbox" checked={webSearch} aria-label="Search the web for this answer" onChange={(event) => setWebSearch(event.target.checked)} />
-            {attachments.length > 0 && (
+            {(uploadingNames.length > 0 || attachments.length > 0) && (
               <div className="cw-composer-attachments" aria-label="Attached files">
+                {uploadingNames.map((filename, index) => (
+                  <span key={`uploading-${filename}-${index}`} className="cw-file-chip cw-file-chip-uploading">
+                    <span className="cw-upload-spinner" aria-label={`Uploading ${filename}`} />
+                    <b>{filename}</b>
+                  </span>
+                ))}
                 {attachments.map((attachment) => (
                   <span key={attachment.id} className="cw-file-chip">
                     {attachment.content_type.startsWith("image/") && attachment.preview ? <img src={attachment.preview} alt="" /> : <span>📎</span>}
@@ -735,7 +752,10 @@ const ChatWorkspace: React.FC = () => {
             />
             <div className="cw-composer-actions">
               <button type="button" className="cw-icon" title="Attach files" onClick={() => fileRef.current?.click()}>📎</button>
-              <VoiceControls onTranscript={(text) => setPrompt((current) => (current ? `${current} ${text}` : text))} />
+              <VoiceControls
+                onTranscript={(text) => setPrompt((current) => (current ? `${current} ${text}` : text))}
+                onVoiceSubmit={(text) => void send(text)}
+              />
               <span className={`cw-hint${researchStatus || uploadingFiles ? " is-active" : ""}`} role="status">
                 {uploadingFiles ? `Uploading ${uploadingFiles} file${uploadingFiles === 1 ? "" : "s"}…` : researchStatus || "Chat and attachments ready"}
               </span>
@@ -746,7 +766,6 @@ const ChatWorkspace: React.FC = () => {
               )}
             </div>
           </form>
-          {notice && <p className="cw-notice">{notice}<button onClick={() => setNotice("")}>✕</button></p>}
           <p className="cw-disclaimer">
             Answers are generated by the provider your admin enabled. Verify important information.
           </p>

@@ -101,7 +101,12 @@ def search_users(
     users = db.query(User).filter(
         User.id != current_user.id,
         User.is_active.is_(True),
-        (User.email.ilike(pattern) | User.full_name.ilike(pattern) | User.identifier.ilike(pattern)),
+        (
+            User.email.ilike(pattern)
+            | User.full_name.ilike(pattern)
+            | User.identifier.ilike(pattern)
+            | User.mobile_number.ilike(pattern)
+        ),
     ).order_by(User.full_name.asc(), User.email.asc()).limit(10).all()
     return [{"id": user.id, "name": user.full_name, "email": user.email, "role": user.role} for user in users]
 

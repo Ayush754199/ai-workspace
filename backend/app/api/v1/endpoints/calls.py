@@ -255,7 +255,10 @@ async def call_signalling(websocket: WebSocket, token: str = Query(default="")):
         if not user or not user.is_active: raise ValueError("inactive user")
     except Exception:
         await websocket.close(code=4401); return
-    await websocket.accept()
+    # When the browser sends the JWT as a WebSocket subprotocol, the server
+    # must select that same protocol in the handshake. Without this response
+    # header browsers reject the connection before the call hub can register it.
+    await websocket.accept(subprotocol=protocol_token or None)
     call_hub.add(int(user.id), websocket)
     try:
         while True:

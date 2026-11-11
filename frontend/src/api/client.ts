@@ -1,5 +1,15 @@
-export const apiBaseUrl =
-  import.meta.env.VITE_API_BASE_URL || `${window.location.protocol}//${window.location.hostname}:8000`;
+const configuredApiBaseUrl = String(import.meta.env.VITE_API_BASE_URL || "").trim().replace(/\/+$/, "");
+const canonicalProductionApi = "https://ai-workspace-gm23.onrender.com";
+
+function normalizeApiBase(value: string): string {
+  return value.replace("ai-worksapce-gm23.onrender.com", "ai-workspace-gm23.onrender.com").replace(/\/+$/, "");
+}
+
+export const apiBaseUrl = normalizeApiBase(
+  configuredApiBaseUrl || (window.location.hostname.endsWith(".onrender.com")
+    ? canonicalProductionApi
+    : `${window.location.protocol}//${window.location.hostname}:8000`),
+);
 
 /** FastAPI validation errors arrive as a list of {loc, msg}; flatten to one line. */
 export function readErrorDetail(detail: unknown, fallback: string): string {
@@ -26,7 +36,7 @@ export async function requestJson<T>(
     // instead of always blaming a stopped backend.
     const detail = error instanceof Error ? error.message : String(error);
     throw new Error(
-      `Cannot reach the API at ${new URL(url).origin}. Is the backend running and is this origin allowed by CORS_ORIGINS? (${detail})`,
+      `Cannot connect to the AI Workspace backend at ${new URL(url).origin}. Check that the service is running and the frontend origin is allowed by CORS. (${detail})`,
     );
   }
   const data = await response.json().catch(() => ({}));

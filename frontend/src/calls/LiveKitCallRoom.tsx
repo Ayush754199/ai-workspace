@@ -63,7 +63,7 @@ const LiveKitCallRoom: React.FC<Props> = ({ call, room, token, onEnd }) => {
   useEffect(() => {
     if (!token) return;
     callsApi.messages(token, call.call_id).then(setMessages).catch(() => undefined);
-    const socket = new WebSocket(callsApi.websocketUrl(), [token]);
+    const socket = new WebSocket(callsApi.websocketUrl(token));
     socket.onmessage = (event) => { try { const payload = JSON.parse(event.data); if (payload.type === "call.message" && payload.message?.call_id === call.call_id) setMessages((current) => current.some((item) => item.message_id === payload.message.message_id) ? current : [...current, payload.message]); } catch { /* ignore malformed signalling frames */ } };
     return () => socket.close();
   }, [call.call_id, token]);

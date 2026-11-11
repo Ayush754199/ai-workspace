@@ -17,5 +17,8 @@ export const callsApi = {
   messages: (token: string, id: string) => apiRequest<CallMessage[]>(token, `/api/v1/calls/${id}/messages`),
   sendMessage: (token: string, id: string, content: string) => apiRequest<CallMessage>(token, `/api/v1/calls/${id}/messages`, { method: "POST", body: JSON.stringify({ content }) }),
   addParticipant: (token: string, id: string, participantId: number) => apiRequest<CallRecord>(token, `/api/v1/calls/${id}/participants`, { method: "POST", body: JSON.stringify({ participant_id: participantId }) }),
-  websocketUrl: () => `${apiBaseUrl.replace(/^http/, "ws")}/api/v1/calls/ws`,
+  // Use the query token instead of the WebSocket subprotocol. Some proxies
+  // reject a non-empty Sec-WebSocket-Protocol header unless the upstream
+  // explicitly echoes it during the handshake.
+  websocketUrl: (token?: string) => `${apiBaseUrl.replace(/^http/, "ws")}/api/v1/calls/ws${token ? `?token=${encodeURIComponent(token)}` : ""}`,
 };

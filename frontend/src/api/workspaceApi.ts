@@ -68,7 +68,7 @@ async function request<T>(token: string, path: string, init: RequestInit = {}): 
       },
     });
   } catch {
-    throw new Error(`Cannot reach the API at ${apiBaseUrl}. Is the backend running?`);
+    throw new Error(`Cannot connect to the AI Workspace backend at ${apiBaseUrl}. The service may be starting, unavailable, or blocked by CORS.`);
   }
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -131,7 +131,7 @@ export const chatV2 = {
         signal,
       });
     } catch (error) {
-      throw new Error(`Cannot reach the API at ${apiBaseUrl}. Is the backend running?`);
+      throw new Error(`Cannot connect to the AI Workspace backend at ${apiBaseUrl}. The service may be starting, unavailable, or blocked by CORS.`);
     }
     if (!response.ok || !response.body) {
       const data = await response.json().catch(() => ({}));
@@ -156,6 +156,19 @@ export const chatV2 = {
         } catch {
           // ignore keep-alive fragments
         }
+      }
+    }
+    buffer += decoder.decode();
+    const finalEvents = buffer.split("\n\n");
+    for (const event of finalEvents) {
+      const line = event.split("\n").find((l) => l.startsWith("data:"));
+      if (!line) continue;
+      const raw = line.slice(5).trim();
+      if (raw === "[DONE]") return;
+      try {
+        yield JSON.parse(raw);
+      } catch {
+        // Ignore incomplete keep-alive fragments.
       }
     }
   },

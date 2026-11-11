@@ -49,12 +49,23 @@ function inline(text: string, keyPrefix: string): React.ReactNode[] {
   return nodes;
 }
 
+function tableCells(line: string): string[] {
+  const value = line.trim().replace(/^\|/, "").replace(/\|$/, "");
+  return value.split("|").map((cell) => cell.trim());
+}
+
+function isTableSeparator(line: string): boolean {
+  const cells = tableCells(line);
+  return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell));
+}
+
 export function renderMarkdown(source: string): React.ReactNode {
   const lines = (source || "").split("\n");
   const blocks: React.ReactNode[] = [];
   let list: string[] = [];
   let ordered = false;
   let code: string[] | null = null;
+  let skipUntil = -1;
 
   const flushList = () => {
     if (!list.length) return;
@@ -64,6 +75,7 @@ export function renderMarkdown(source: string): React.ReactNode {
   };
 
   lines.forEach((raw, lineIndex) => {
+    if (lineIndex <= skipUntil) return;
     const line = raw.replace(/\s+$/, "");
     if (line.trim().startsWith("```")) {
       flushList();
@@ -81,6 +93,26 @@ export function renderMarkdown(source: string): React.ReactNode {
     }
     if (code !== null) {
       code.push(raw);
+      return;
+    }
+    if (line.includes("|") && lineIndex + 1 < lines.length && isTableSeparator(lines[lineIndex + 1])) {
+      flushList();
+      const headers = tableCells(line);
+      const rows: string[][] = [];
+      let end = lineIndex + 2;
+      while (end < lines.length && lines[end].includes("|") && lines[end].trim()) {
+        rows.push(tableCells(lines[end]));
+        end += 1;
+      }
+      skipUntil = end - 1;
+      blocks.push(
+        <div className="cw-md-table-wrap" key={`table-${lineIndex}`}>
+          <table>
+            <thead><tr>{headers.map((cell, index) => <th key={`th-${index}`}>{inline(cell, `th-${lineIndex}-${index}`)}</th>)}</tr></thead>
+            <tbody>{rows.map((row, rowIndex) => <tr key={`tr-${rowIndex}`}>{headers.map((_, cellIndex) => <td key={`td-${rowIndex}-${cellIndex}`}>{inline(row[cellIndex] || "", `td-${lineIndex}-${rowIndex}-${cellIndex}`)}</td>)}</tr>)}</tbody>
+          </table>
+        </div>,
+      );
       return;
     }
     const heading = /^(#{1,6})\s+(.*)$/.exec(line);
