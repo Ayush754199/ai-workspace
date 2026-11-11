@@ -197,7 +197,13 @@ async def transition(call: dict[str, Any], status: str, actor_id: int, *, reason
     if status in TERMINAL_STATES:
         update["ended_at"] = now
         started = call.get("started_at") or call.get("accepted_at")
-        if isinstance(started, datetime): update["duration_seconds"] = max(0, int((now - started).total_seconds()))
+        if isinstance(started, datetime):
+            # Mongo deployments may deserialize legacy UTC timestamps as
+            # naive datetimes. Normalize them before subtracting from the
+            # timezone-aware value returned by utcnow().
+            if started.tzinfo is None:
+                started = started.replace(tzinfo=timezone.utc)
+            update["duration_seconds"] = max(0, int((now - started).total_seconds()))
         update["terminal_reason"] = reason or status
     await mongo.calls.update_one({"call_id": call["call_id"], "status": current}, {"$set": update})
     await write_event(call["call_id"], status, actor_id, {"reason": reason} if reason else {})
