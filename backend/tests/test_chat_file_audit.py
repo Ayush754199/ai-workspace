@@ -255,3 +255,29 @@ def _png_bytes() -> bytes:
     buffer = io.BytesIO()
     Image.new("RGB", (8, 8), (10, 20, 30)).save(buffer, format="PNG")
     return buffer.getvalue()
+
+
+def test_corrupt_office_upload_is_a_400_not_a_500():
+    """A truncated/corrupt .docx raised BadZipFile and surfaced as a bare 500.
+
+    Every Office format is a zip container, so the extractor must be guarded and
+    the client must be told the file is unreadable.
+    """
+    from fastapi import HTTPException
+
+    from app.api.v1.endpoints.chat_v2 import _extract_upload_text
+
+    corrupt = b"PK\x03\x04\x01\x02\x03"
+    for name in ("broken.docx", "broken.xlsx", "broken.pptx"):
+        with pytest.raises(HTTPException) as raised:
+            _extract_upload_text("document", corrupt, name)
+        assert raised.value.status_code == 400
+        assert "Could not read" in raised.value.detail
+
+
+def test_valid_office_upload_still_extracts_text():
+    from app.api.v1.endpoints.chat_v2 import _extract_upload_text
+
+    assert "Heading" in _extract_upload_text("document", _docx_bytes(), "ok.docx")
+    assert "a | 1" in _extract_upload_text("document", _xlsx_bytes(), "ok.xlsx")
+    assert "Slide one" in _extract_upload_text("document", _pptx_bytes(), "ok.pptx")

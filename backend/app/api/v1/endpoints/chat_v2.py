@@ -756,12 +756,25 @@ def _extract_upload_text(kind: str, data: bytes, filename: str) -> str:
         from app.services import documents as _docs
 
         lower = filename.lower()
+        extractor = None
         if lower.endswith(".docx"):
-            return _docs.extract_docx_text(data)
-        if lower.endswith((".xlsx", ".xlsm")):
-            return _docs.extract_xlsx_text(data)
-        if lower.endswith(".pptx"):
-            return _docs.extract_pptx_text(data)
+            extractor = _docs.extract_docx_text
+        elif lower.endswith((".xlsx", ".xlsm")):
+            extractor = _docs.extract_xlsx_text
+        elif lower.endswith(".pptx"):
+            extractor = _docs.extract_pptx_text
+        if extractor is not None:
+            # An Office file is a zip container; a truncated, encrypted or simply
+            # mislabelled upload raises BadZipFile/KeyError. That reached the client
+            # as a bare 500 "Internal Server Error", so every corrupt document broke
+            # the endpoint instead of being rejected.
+            try:
+                return extractor(data)
+            except Exception as exc:  # noqa: BLE001 - any unreadable file is a bad request
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Could not read {filename or 'this document'}. The file may be corrupt, password-protected or not a real Office document.",
+                ) from exc
     return ""
 
 
