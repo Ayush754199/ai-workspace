@@ -73,6 +73,14 @@ def test_room_04_invite_by_username_and_email(qa):
     by_username = client.post(f"/api/v1/rooms/{room_id}/members", headers=h(users["alice"]), json={"identifier": "Priya Nair"})
     assert by_username.status_code == 200
     assert by_username.json()["user_id"] == users["bob"].id
+    # /members creates a PENDING invitation; joining happens on accept (this is
+    # what the invitation list in the UI is for). The invitee must not see the room
+    # before accepting, and must see it afterwards.
+    assert room_id not in [room["id"] for room in client.get("/api/v1/rooms", headers=h(users["bob"])).json()]
+    pending = client.get("/api/v1/rooms/invitations", headers=h(users["bob"])).json()
+    invitation = next(item for item in pending if item["room_id"] == room_id)
+    accepted = client.post(f"/api/v1/rooms/invitations/{invitation['id']}/accept", headers=h(users["bob"]))
+    assert accepted.status_code == 200
     assert room_id in [room["id"] for room in client.get("/api/v1/rooms", headers=h(users["bob"])).json()]
 
 

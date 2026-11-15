@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
-import { Attachment, ChatMessage, Conversation, chatV2 } from "../api/workspaceApi";
+import { Attachment, ChatMessage, Conversation, GeneratedChatFile, chatV2 } from "../api/workspaceApi";
 import { imageApi } from "../api/workspaceApi";
 import renderMarkdown from "../components/Markdown";
 import VoiceControls from "../components/VoiceControls";
@@ -9,6 +9,47 @@ import ChatNavigationDrawer from "../components/ChatNavigationDrawer";
 import { CallIcon } from "../components/CallIcon";
 
 type ChatArtifact = { kind: "pdf" | "excel" | "code"; title: string; filename: string; content: string };
+
+// भाषा-निरपेक्ष संकेत: (.pdf/.xlsx), "PDF", "Excel" जैसे फॉर्मेट नाम और "file बनाओ", "PDF चाहिए" जैसे
+// वाक्यांश — अंग्रेज़ी, हिंगलिश, रोमन हिंदी या किसी भी लिपि में मिल जाते हैं।
+const FILE_INTENT = new RegExp(
+  [
+    // "make/give me a file" — the format name is checked separately, so any of these works as the verb.
+    "\\b(make|create|generate|prepare|build|give|send|write|produce)\\b[^.?!]{0,24}\\b(files?|documents?|sheets?|reports?)\\b",
+    "\\b(download|downloadable|export|save)\\w*\\b",
+    "फाइल", "फ़ाइल", "दस्तावेज़", "दस्तावेज", "रिपोर्ट", "तैयार", "डाउनलोड", "बना", "दो",
+    "bana", "banao", "banana", "banane", "banao", "karo", "kro", "kardo", "de\\s*do", "chahiye", "chaiye", "cahiye",
+    // A concrete filename ("invoice.xlsx") is intent enough on its own.
+    "\\b\\w+\\.(pdf|docx?|xlsx?|csv|pptx?)\\b",
+  ].join("|"),
+  "i",
+);
+
+export function requestedFileFormat(prompt: string): "xlsx" | "docx" | "pptx" | "csv" | "pdf" | null {
+  const text = prompt.toLowerCase();
+  // फॉर्मेट का नाम ही सबसे मज़बूत संकेत है — "PDF", "excel", "xlsx" हर भाषा में एक जैसा लिखा जाता है।
+  const explicitFormat = /(excel|xlsx|spreadsheet|word|docx|powerpoint|pptx|presentation|csv|pdf|report|रिपोर्ट|फाइल|फ़ाइल|डॉक्यूमेंट|दस्तावेज़|शीट)/i.test(text);
+  const action = FILE_INTENT.test(text);
+  // फॉर्मेट + इंटेंट दोनों चाहिए, ताकि "Excel में formula" जैसे सवाल पर फाइल न बने।
+  // सिर्फ़ "एक फाइल बना दो" कहा और कोई फॉर्मेट नहीं चुना — तो भी असली फाइल बनाएँ (docx डिफ़ॉल्ट),
+  // बजाय इसके कि AI कोड लिखकर दे।
+  const bareFile = /\b(files?|documents?)\b|फाइल|फ़ाइल|दस्तावेज़|दस्तावेज/i.test(text);
+  if (!action || (!explicitFormat && !bareFile)) return null;
+  if (/\b(excel|xlsx|spreadsheet|स्प्रेडशीट|शीट)\b/i.test(text)) return "xlsx";
+  if (/\b(word|docx|document|डॉक्यूमेंट|दस्तावेज़)\b/i.test(text)) return "docx";
+  if (/\b(powerpoint|pptx|presentation|प्रेज़ेन्टेशन|प्रेजेंटेशन)\b/i.test(text)) return "pptx";
+  if (/\b(csv|comma[- ]separated)\b/i.test(text)) return "csv";
+  if (/\b(pdf|report|रिपोर्ट)\b/i.test(text)) return "pdf";
+  // फॉर्मेट नहीं बताया गया: फिर भी यूज़र असली फाइल चाहता है, कोड नहीं।
+  return bareFile ? "docx" : null;
+}
+
+function fileBlob(file: GeneratedChatFile): Blob {
+  const binary = atob(file.data_base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return new Blob([bytes], { type: file.content_type });
+}
 
 function parseArtifact(text: string): { chat: string; artifact: ChatArtifact | null; pending: boolean } {
   const start = /```file_(pdf|excel|code):([^:\n]+):([^\s`]+)[^\S\r\n]*\r?\n?/i.exec(text);
@@ -85,6 +126,7 @@ const ChatWorkspace: React.FC = () => {
   const [showArchived, setShowArchived] = useState(false);
   // Web search is enabled by default so current answers can use fresh sources.
   const [webSearch, setWebSearch] = useState(false);
+  const [generateAsFile, setGenerateAsFile] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -96,6 +138,7 @@ const ChatWorkspace: React.FC = () => {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [searchParams] = useSearchParams();
   const [artifactCopied, setArtifactCopied] = useState(false);
+  const [savingArtifact, setSavingArtifact] = useState(false);
   const skipNextConversationLoadRef = useRef<number | null>(null);
   const artifactFrames = useRef(new Map<number, HTMLIFrameElement>());
   const artifactView = useMemo(() => {
@@ -260,7 +303,7 @@ const ChatWorkspace: React.FC = () => {
       status: "complete",
       attachments,
       citations: [],
-      meta: {},
+      meta: { originalPrompt: content },
       created_at: new Date().toISOString(),
     };
     const placeholder: ChatMessage = {
@@ -282,6 +325,18 @@ const ChatWorkspace: React.FC = () => {
     const controller = new AbortController();
     abortRef.current = controller;
     try {
+      // मैनुअल फाइल मोड: यूज़र ने "फाइल बनाएं" टॉगल ऑन किया है तो
+      // भाषा चाहे जो भी हो, असली डाउनलोडेबल फाइल बनाई जाती है।
+      const fileFormat = generateAsFile ? (requestedFileFormat(content) || "docx") : requestedFileFormat(content);
+      if (fileFormat) {
+        setResearchStatus("Creating your downloadable file…");
+        const generated = await chatV2.generateDocument(token, conversationId, { prompt: content, format: fileFormat });
+        setMessages((current) => current.map((message) => message.id === placeholder.id
+          ? { ...message, content: `Your ${fileFormat.toUpperCase()} file is ready to download.`, status: "complete", pending: false, meta: { generatedFile: generated } }
+          : message));
+        setGenerateAsFile(false);
+        return;
+      }
       if (imageAttachment) {
         setResearchStatus("Editing your image…");
         const sourceFile = attachmentFiles.current.get(imageAttachment.id);
@@ -344,7 +399,7 @@ const ChatWorkspace: React.FC = () => {
         setMessages((current) =>
           current.map((message) =>
             message.id === placeholder.id
-              ? { ...message, pending: false, status: "stopped", error: "Stopped by you" }
+              ? { ...message, pending: false, status: "stopped", error: "Stopped by you", meta: { ...message.meta, originalPrompt: content } }
               : message,
           ),
         );
@@ -383,6 +438,22 @@ const ChatWorkspace: React.FC = () => {
 
   const stop = () => abortRef.current?.abort();
 
+  const editStoppedPrompt = (value: string) => {
+    setPrompt(value);
+    textareaRef.current?.focus();
+  };
+
+  const downloadGeneratedFile = (file: GeneratedChatFile) => {
+    const url = URL.createObjectURL(fileBlob(file));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = file.filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 4000);
+  };
+
   const copyArtifact = async (content: string) => {
     try {
       await navigator.clipboard.writeText(content);
@@ -408,6 +479,52 @@ const ChatWorkspace: React.FC = () => {
 
   const printArtifact = (frame: HTMLIFrameElement | null) => {
     try { frame?.contentWindow?.print(); } catch { setError("Could not open the print dialog"); }
+  };
+
+  /**
+   * Reads a previewed artifact in the language the document generators understand.
+   * file_pdf bodies are HTML for the preview; PDF/Word writers need Markdown, so
+   * headings, list items and table rows are converted line by line. Anything that
+   * is already Markdown/CSV/source (file_excel, file_code) is passed through as-is.
+   */
+  const artifactAsMarkdown = (artifact: ChatArtifact): string => {
+    const value = artifact.content || "";
+    if (artifact.kind !== "pdf" || !/<[a-z][\s\S]*>/i.test(value)) return value;
+    const text = value
+      .replace(/<(script|style)[\s\S]*?<\/\1>/gi, "")
+      .replace(/<li[^>]*>/gi, "\n- ")
+      .replace(/<\/(h[1-6]|p|div|li|tr|table|ul|ol|section)>/gi, "\n")
+      .replace(/<t[dh][^>]*>/gi, " | ")
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<h([1-6])[^>]*>/gi, (_match, level: string) => `\n${"#".repeat(Math.min(Number(level), 4))} `)
+      .replace(/<[^>]+>/g, "")
+      .replace(/&nbsp;/gi, " ")
+      .replace(/&lt;/gi, "<").replace(/&gt;/gi, ">").replace(/&quot;/gi, '"').replace(/&#39;/gi, "'").replace(/&amp;/gi, "&");
+    return text.split("\n").map((line) => line.replace(/\s*\|\s*$/, "").trim()).filter((line, index, lines) => line || lines[index - 1]).join("\n").trim();
+  };
+
+  /** Turns the AI's preview into a genuine PDF/DOCX/XLSX/CSV through the backend generators. */
+  const saveArtifactAsFile = async (artifact: ChatArtifact) => {
+    if (!token || conversationId == null) return;
+    const format = artifact.kind === "pdf" ? "pdf" : artifact.kind === "excel" ? "xlsx" : null;
+    if (!format) {
+      downloadArtifact(artifact);
+      return;
+    }
+    setSavingArtifact(true);
+    try {
+      const title = artifact.title || "Document";
+      const generated = await chatV2.generateDocument(token, conversationId, {
+        prompt: `Title: ${title}\n\nPrepare this exact content for the file, keep the wording and structure:\n\n${artifactAsMarkdown(artifact)}`,
+        format,
+        title,
+      });
+      downloadGeneratedFile(generated);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not create the file");
+    } finally {
+      setSavingArtifact(false);
+    }
   };
 
   const convertCsvToXlsx = async (csv: string) => {
@@ -645,6 +762,12 @@ const ChatWorkspace: React.FC = () => {
                       <button onClick={() => reuseAsSource(String(message.meta.imageUrl))}>✎ Edit this</button>
                     </div>
                   </div>
+                ) : message.meta?.generatedFile ? (
+                  <div className="cw-generated-file">
+                    <span className="cw-generated-file-icon">▤</span>
+                    <div><strong>{String((message.meta.generatedFile as GeneratedChatFile).filename)}</strong><small>{Math.ceil(Number((message.meta.generatedFile as GeneratedChatFile).size_bytes) / 1024)} KB · ready to download</small></div>
+                    <button onClick={() => downloadGeneratedFile(message.meta.generatedFile as GeneratedChatFile)}>⤓ Download</button>
+                  </div>
                 ) : (
                 <div className="cw-msg-content">
                   {(() => {
@@ -656,6 +779,9 @@ const ChatWorkspace: React.FC = () => {
                 </div>
                 )}
                 {message.error && <p className="cw-msg-error">{message.error}</p>}
+                {message.role === "assistant" && message.status === "stopped" && typeof message.meta?.originalPrompt === "string" && (
+                  <button className="cw-edit-prompt" onClick={() => editStoppedPrompt(String(message.meta.originalPrompt))}>✎ Edit prompt</button>
+                )}
                 {message.citations?.length > 0 && (
                   <div className="cw-citations">
                     <strong>Sources</strong>
@@ -704,7 +830,12 @@ const ChatWorkspace: React.FC = () => {
             ) : (
               <>
                 <div className="cw-artifact-toolbar">
-                  <button onClick={() => downloadArtifact(artifactView.artifact!)}>{artifactView.artifact.kind === "excel" ? "Download CSV" : "Download"}</button>
+                  {(artifactView.artifact.kind === "pdf" || artifactView.artifact.kind === "excel") && (
+                    <button disabled={savingArtifact} onClick={() => void saveArtifactAsFile(artifactView.artifact!)}>
+                      {savingArtifact ? "Creating…" : artifactView.artifact.kind === "pdf" ? "⤓ Save as PDF" : "⤓ Save as XLSX"}
+                    </button>
+                  )}
+                  <button onClick={() => downloadArtifact(artifactView.artifact!)}>{artifactView.artifact.kind === "excel" ? "Download CSV" : artifactView.artifact.kind === "pdf" ? "Download HTML" : "Download"}</button>
                   {artifactView.artifact.kind === "excel" && <button onClick={() => downloadArtifact(artifactView.artifact!, true)}>Export CSV</button>}
                   <button onClick={() => void copyArtifact(artifactView.artifact!.content)}>{artifactCopied ? "Copied" : "Copy"}</button>
                   {artifactView.artifact.kind === "excel" && <button onClick={() => void convertCsvToXlsx(artifactView.artifact!.content)}>Export XLS</button>}
@@ -736,6 +867,15 @@ const ChatWorkspace: React.FC = () => {
             }}
           >
             <input className="cw-visually-hidden" type="checkbox" checked={webSearch} aria-label="Search the web for this answer" onChange={(event) => setWebSearch(event.target.checked)} />
+            <button
+              type="button"
+              className={`cw-icon cw-file-toggle ${generateAsFile ? "cw-active" : ""}`}
+              title={generateAsFile ? "फाइल मोड बंद करें" : "फाइल बनाएं (PDF/DOCX/XLSX/CSV/PPTX)"}
+              onClick={() => setGenerateAsFile((prev) => !prev)}
+              aria-pressed={generateAsFile}
+            >
+              {generateAsFile ? "✓ फाइल" : "📄 फाइल"}
+            </button>
             {(uploadingNames.length > 0 || attachments.length > 0) && (
               <div className="cw-composer-attachments" aria-label="Attached files">
                 {uploadingNames.map((filename, index) => (

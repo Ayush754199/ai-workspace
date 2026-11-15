@@ -126,3 +126,27 @@ def test_room_invitation_accept_decline_remove_and_leave(client):
     assert accepted_again.status_code == 200
     assert api.post(f"/api/v1/rooms/invitations/{invitation_id}/accept", headers=auth(users[1])).status_code == 200
     assert api.delete(f"/api/v1/rooms/{room.id}/membership", headers=auth(users[1])).status_code == 200
+
+
+def test_invite_link_can_be_created_and_accepted(client):
+    """The whole shareable-link path: create on one account, join with another."""
+    api, users, room = client
+    created = api.post(f"/api/v1/rooms/{room.id}/invite-link", headers=auth(users[0]))
+    assert created.status_code == 200
+    token = created.json()["token"]
+    assert token and created.json()["room_id"] == room.id
+
+    # A non-member cannot mint a link, and a bogus token is refused.
+    assert api.post(f"/api/v1/rooms/{room.id}/invite-link", headers=auth(users[1])).status_code == 403
+    assert api.post("/api/v1/rooms/invites/not-a-real-token/accept", headers=auth(users[1])).status_code == 404
+
+    accepted = api.post(f"/api/v1/rooms/invites/{token}/accept", headers=auth(users[1]))
+    assert accepted.status_code == 200
+    assert accepted.json()["id"] == room.id
+
+    # Joining is what grants access; accepting twice must stay idempotent.
+    assert api.get(f"/api/v1/rooms/{room.id}/messages", headers=auth(users[1])).status_code == 200
+    again = api.post(f"/api/v1/rooms/invites/{token}/accept", headers=auth(users[1]))
+    assert again.status_code == 200
+    members = api.get("/api/v1/rooms", headers=auth(users[1])).json()
+    assert any(item["id"] == room.id for item in members)

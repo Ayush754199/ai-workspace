@@ -8,7 +8,10 @@ const spaRouteCopies = () => ({
   name: 'spa-route-copies',
   closeBundle() {
     const dist = resolve(__dirname, 'dist')
-    for (const route of ['login', 'register', 'dashboard', 'assistant', 'documents', 'images', 'office', 'research', 'chat', 'video-studio', 'video-studio/editor', 'profile', 'admin']) {
+    // Must list EVERY client route in App.tsx. The static host serves these
+    // copies directly and has no SPA fallback, so a route missing here 404s on a
+    // hard load -- which silently broke invite links (/rooms) and the call page.
+    for (const route of ['login', 'register', 'dashboard', 'assistant', 'documents', 'images', 'office', 'research', 'chat', 'rooms', 'calls', 'video-studio', 'video-studio/editor', 'profile', 'admin']) {
       const target = resolve(dist, route, 'index.html')
       mkdirSync(resolve(dist, route), { recursive: true })
       copyFileSync(resolve(dist, 'index.html'), target)

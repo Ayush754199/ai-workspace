@@ -103,7 +103,9 @@ def test_scanned_pdf_uses_page_labelled_ocr_fallback(monkeypatch):
     from app.services import documents
 
     monkeypatch.setattr(documents, "extract_pdf_text", lambda _data: "")
-    monkeypatch.setattr(documents, "extract_pdf_ocr", lambda _data: "## Page 2 (OCR)\nScanned invoice total: 42")
+    # extract_any always asks for strict OCR, so the double must accept that kwarg
+    # just like the real function; a narrower lambda made this test fail on its mock.
+    monkeypatch.setattr(documents, "extract_pdf_ocr", lambda _data, strict=False: "## Page 2 (OCR)\nScanned invoice total: 42")
 
     kind, text = documents.extract_any(b"not-used-by-mocked-extractors", "scan.pdf", "application/pdf")
 

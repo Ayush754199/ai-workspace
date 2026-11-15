@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import type { ChatUser } from "../api/chatApi";
+import { appOrigin } from "../api/client";
 
 type Props = { onClose: () => void; onSubmit: (identifier: string) => Promise<string | null>; onCreateLink: () => Promise<string | null>; onSearchUsers: (query: string) => Promise<ChatUser[]> };
 
@@ -34,7 +35,7 @@ const InviteMemberModal: React.FC<Props> = ({ onClose, onSubmit, onCreateLink, o
   const createLink = async () => {
     setLinkError("");
     const token = await onCreateLink();
-    if (token) setInviteLink(`${window.location.origin}/rooms?invite=${encodeURIComponent(token)}`);
+    if (token) setInviteLink(`${appOrigin}/rooms?invite=${encodeURIComponent(token)}`);
     else setLinkError("Unable to create invite link");
   };
 

@@ -314,6 +314,18 @@ async def image_studio(
     prompt = prompt.strip()
     if not prompt:
         raise HTTPException(status_code=400, detail="A prompt is required")
+    # Validate the upload before anything else. Checking the conversation first
+    # answered "start this from a chat" for a corrupt image, which hid the real
+    # problem and made the rejection depend on call order.
+    uploaded_data: bytes | None = None
+    if image is not None:
+        uploaded_data = await image.read()
+        if len(uploaded_data) > MAX_FILE_SIZE:
+            raise HTTPException(status_code=413, detail="Image exceeds the 20 MB limit")
+        try:
+            Image.open(io.BytesIO(uploaded_data)).verify()
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="Invalid image file") from exc
     if conversation_id is None:
         raise HTTPException(status_code=400, detail="Image generation must be started from a chat")
     today = date.today()
@@ -338,18 +350,6 @@ async def image_studio(
         )
     except QuotaError as exc:
         raise HTTPException(status_code=429, detail=str(exc)) from exc
-
-    uploaded_data: bytes | None = None
-    if image is not None:
-        uploaded_data = await image.read()
-        if len(uploaded_data) > MAX_FILE_SIZE:
-            QuotaService().release(db, reservation.reservation_id, failure=True)
-            raise HTTPException(status_code=413, detail="Image exceeds the 20 MB limit")
-        try:
-            Image.open(io.BytesIO(uploaded_data)).verify()
-        except Exception as exc:
-            QuotaService().release(db, reservation.reservation_id, failure=True)
-            raise HTTPException(status_code=400, detail="Invalid image file") from exc
 
     if not settings.IMAGE_ORCHESTRATION_ENABLED:
         QuotaService().release(db, reservation.reservation_id, failure=True)

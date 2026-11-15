@@ -57,8 +57,12 @@ def test_legacy_image_endpoint_rejects_invalid_image_without_500_or_quota_use(mo
     assert response.json()["detail"] == "Invalid image file"
     assert "Traceback" not in response.text
 
+    # The upload is rejected before any quota is reserved, so no ledger row should
+    # exist yet. Assert "nothing was consumed" rather than "a row exists" -- the
+    # row is only created by reserve(), which should never be reached here.
     with SessionLocal() as db:
         user = db.query(User).filter_by(email=identifier).one()
-        quota = db.query(CapabilityQuota).filter_by(user_id=user.id, capability="image").one()
-        assert quota.daily_used == 0
-        assert quota.reserved == 0
+        quota = db.query(CapabilityQuota).filter_by(user_id=user.id, capability="image").first()
+        if quota is not None:
+            assert quota.daily_used == 0
+            assert quota.reserved == 0

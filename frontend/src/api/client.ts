@@ -11,6 +11,15 @@ export const apiBaseUrl = normalizeApiBase(
     : `${window.location.protocol}//${window.location.hostname}:8000`),
 );
 
+/**
+ * Origin of the app itself, for links that must open the UI (invite links,
+ * shares). The SPA and the API are separate deployments, so this must never be
+ * derived from `apiBaseUrl`: pointing an invite at the API origin gives the
+ * recipient a 404, because the API serves no routes outside /api/v1.
+ */
+export const appOrigin = String(import.meta.env.VITE_APP_ORIGIN || "").trim().replace(/\/+$/, "")
+  || (window.location.protocol.startsWith("http") ? window.location.origin : canonicalProductionApi);
+
 /** FastAPI validation errors arrive as a list of {loc, msg}; flatten to one line. */
 export function readErrorDetail(detail: unknown, fallback: string): string {
   if (typeof detail === "string") return detail;
