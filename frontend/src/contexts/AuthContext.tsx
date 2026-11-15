@@ -47,19 +47,32 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   useEffect(() => {
     const storedToken = localStorage.getItem("auth_token");
+    const storedUser = localStorage.getItem("auth_user");
     setToken(storedToken);
+    if (storedUser) {
+      try { setUser(JSON.parse(storedUser) as User); } catch { localStorage.removeItem("auth_user"); }
+    }
 
     let cancelled = false;
     const restoreSession = async () => {
       if (storedToken) {
         try {
           const currentUser = await loadUser(storedToken);
-          if (!cancelled) setUser(currentUser);
-        } catch {
           if (!cancelled) {
-            localStorage.removeItem("auth_token");
-            setToken(null);
-            setUser(null);
+            setUser(currentUser);
+            localStorage.setItem("auth_user", JSON.stringify(currentUser));
+          }
+        } catch (error: any) {
+          if (!cancelled) {
+            // A browser returning from sleep/home can briefly lose network
+            // connectivity. Do not turn that transient failure into a logout;
+            // only an explicit 401 means the token is invalid.
+            if (error?.status === 401) {
+              localStorage.removeItem("auth_token");
+              localStorage.removeItem("auth_user");
+              setToken(null);
+              setUser(null);
+            }
           }
         }
       }
@@ -86,6 +99,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const currentUser = await loadUser(data.access_token);
       setToken(data.access_token);
       localStorage.setItem("auth_token", data.access_token);
+      localStorage.setItem("auth_user", JSON.stringify(currentUser));
       setUser(currentUser);
       navigate(`/assistant${location.search}`);
     } catch (error: any) {
@@ -111,6 +125,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setToken(null);
     setUser(null);
     localStorage.removeItem("auth_token");
+    localStorage.removeItem("auth_user");
     navigate("/login", { replace: true });
   };
 

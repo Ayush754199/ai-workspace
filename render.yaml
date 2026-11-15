@@ -31,12 +31,17 @@ services:
     region: singapore
     plan: free
     rootDir: backend
-    buildCommand: pip install -r ../requirements.txt
+    # backend/requirements.txt is the API dependency set (fastapi, uvicorn,
+    # sqlalchemy, psycopg, motor, python-jose, ...). The old command installed
+    # ../requirements.txt, which was the Streamlit file and contained no web
+    # framework at all -- the service could never import app.main.
+    buildCommand: pip install -r requirements.txt
     # --log-level info is not cosmetic: without it Render's port scanner can miss
     # the startup banner and abort with "No open ports detected" even though
     # uvicorn is listening. --proxy-headers lets the app see the real client IP
-    # (the rate limiter and audit log depend on it) behind Render's proxy.
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --log-level info --proxy-headers --forwarded-allow-ips="*"
+    # (the rate limiter and audit log depend on it) behind Render's proxy; the
+    # allow-list is the private ranges the Render edge connects from, not "*".
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --log-level info --proxy-headers --forwarded-allow-ips="127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
     healthCheckPath: /api/v1/health
     autoDeploy: true
     envVars:
@@ -62,11 +67,28 @@ services:
       - key: API_DOCS_ENABLED
         value: "false"
 
-      # Container filesystem is ephemeral -- uploaded/generated documents live
-      # here. Set ATTACHMENT_STORAGE_DIR to the mounted disk path (/var/data/...)
-      # on a paid plan, or attach object storage for a free-plan deployment.
-      - key: ATTACHMENT_STORAGE_DIR
-        value: /var/data/attachments
+      # A missing/short JWT_SECRET is a startup error in production instead of a
+      # per-process random key that signs everyone out on the next restart.
+      - key: ENVIRONMENT
+        value: "production"
+
+      # Uploaded/generated files live on disk. Render's container filesystem is
+      # EPHEMERAL and the free plan cannot mount a disk, so uploads do NOT survive
+      # a deploy or restart unless a disk is attached below. Do not set
+      # ATTACHMENT_STORAGE_DIR unless that disk is actually mounted: pointing it at
+      # an unmounted path created a directory that vanished on the next deploy.
+      #   Disk attached  -> also add ATTACHMENT_STORAGE_DIR=/var/data/attachments
+      #   No disk        -> leave it unset (defaults to storage/attachments)
+
+      # Comma-separated proxy CIDRs whose X-Forwarded-For is believed.
+      - key: TRUSTED_PROXY_CIDRS
+        value: "127.0.0.0/8,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+
+      # Administrator provisioning: the identifier of an EXISTING account that is
+      # promoted to admin at startup. Leave unset for normal operation; remove it
+      # after the promotion is verified. Registration can never create an admin.
+      - key: ADMIN_BOOTSTRAP_IDENTIFIER
+        sync: false
 
       # Production must use verified live providers. If no provider is
       # configured, the backend fails closed with a clear 503 instead of
@@ -89,10 +111,16 @@ services:
       # never stored in git.
       - key: GEMINI_API_KEY
         sync: false
+      - key: GEMINI_MODEL
+        value: "gemini-3.8-flash"
       - key: GROQ_API_KEY_1
+        sync: false
+      - key: GROQ_MODEL
         sync: false
       - key: OPENROUTER_KEY_1
         sync: false
+      - key: OPENROUTER_MODEL
+        value: "openrouter/free"
       - key: HF_TOKEN
         sync: false
       - key: CLOUDFLARE_ACCOUNT_ID
@@ -124,8 +152,9 @@ services:
       - key: LIVEKIT_API_SECRET
         sync: false
 
-    # Uncomment to keep uploaded files across deploys (requires a paid plan or
-    # a paid disk; free instances cannot mount a disk).
+    # Keep uploaded files across deploys. Requires a paid instance type -- free
+    # instances cannot mount a disk. After enabling BOTH blocks, also set
+    # ATTACHMENT_STORAGE_DIR=/var/data/attachments in envVars above.
     # disk:
     #   name: workspace-data
     #   mountPath: /var/data

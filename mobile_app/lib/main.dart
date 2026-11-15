@@ -5,8 +5,9 @@ import 'package:provider/provider.dart';
 import 'services/api_service.dart';
 import 'services/auth_store.dart';
 import 'screens/auth_screen.dart';
-import 'screens/home_screen.dart';
+import 'screens/chat_workspace_screen.dart';
 import 'theme/app_theme.dart';
+import 'widgets/brand_logo.dart';
 
 void main() => runApp(const AIWorkspaceApp());
 
@@ -20,8 +21,10 @@ class AIWorkspaceApp extends StatelessWidget {
           ChangeNotifierProvider(create: (_) => AuthStore()),
         ],
         child: MaterialApp(
-          title: 'AI Workspace',
-          theme: AppTheme.dark(),
+          title: AppBrand.name,
+          theme: AppTheme.light(),
+          darkTheme: AppTheme.dark(),
+          themeMode: ThemeMode.system,
           home: const StartupGate(),
         ),
       );
@@ -44,9 +47,21 @@ class _StartupGateState extends State<StartupGate> {
   }
 
   Future<void> _unlock() async {
+    final store = context.read<AuthStore>();
+    await store.restore(context.read<ApiService>());
+    if (!store.isAuthenticated) {
+      if (mounted)
+        setState(() {
+          unlocked = true;
+          checking = false;
+        });
+      return;
+    }
     final auth = LocalAuthentication();
     try {
-      unlocked = await auth.authenticate(localizedReason: 'Unlock AI Workspace');
+      unlocked = await auth.authenticate(
+        localizedReason: 'Unlock AI Workspace',
+      );
     } catch (_) {
       unlocked = true;
     }
@@ -55,8 +70,18 @@ class _StartupGateState extends State<StartupGate> {
 
   @override
   Widget build(BuildContext context) {
-    if (checking) return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    if (!unlocked) return Scaffold(body: Center(child: FilledButton(onPressed: _unlock, child: const Text('Unlock'))));
-    return Consumer<AuthStore>(builder: (_, store, __) => store.token == null ? const AuthScreen() : const HomeScreen());
+    if (checking)
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    if (!unlocked)
+      return Scaffold(
+        body: Center(
+          child: FilledButton(onPressed: _unlock, child: const Text('Unlock')),
+        ),
+      );
+    return Consumer<AuthStore>(
+      builder: (_, store, __) => store.token == null
+          ? const AuthScreen()
+          : const ChatWorkspaceScreen(),
+    );
   }
 }

@@ -32,7 +32,17 @@ class MongoCollections:
             self.call_messages = None
             return
         try:
-            self.client = AsyncIOMotorClient(settings.MONGODB_URL, serverSelectionTimeoutMS=5000)
+            # Motor construction itself is lazy and performs no network I/O. Keep
+            # the underlying selection timeout below the application's wait_for
+            # bound; otherwise Motor's 5s server selection outlasts a 4s outer
+            # timeout and a dropped Atlas connection can hang startup/register.
+            self.PING_TIMEOUT_SECONDS = 4.0
+            self.client = AsyncIOMotorClient(
+                settings.MONGODB_URL,
+                serverSelectionTimeoutMS=2500,
+                connectTimeoutMS=2500,
+                socketTimeoutMS=2500,
+            )
             self.database = self.client[settings.MONGODB_DATABASE]
             self.users: AsyncIOMotorCollection = self.database["users"]
             self.chat_history: AsyncIOMotorCollection = self.database["chat_history"]

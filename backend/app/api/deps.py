@@ -18,13 +18,13 @@ def get_current_user(
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
-        payload = security.jwt.decode(
-            token, security.JWT_SECRET, algorithms=[security.ALGORITHM]
-        )
+        payload = security.decode_access_token(token)
         identifier: str = payload.get("sub")
         if identifier is None:
             raise credentials_exception
     except Exception:
+        # Includes expired tokens and tokens signed with a rotated secret. A
+        # deactivated user is rejected below on the row read, not on the claim.
         raise credentials_exception
     
     # The database row is read on every request, so a role change (e.g. a revoked

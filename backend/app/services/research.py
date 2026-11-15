@@ -8,8 +8,8 @@ from urllib.parse import urlparse
 from app.core.config import settings
 from app.services import tavily
 from app.services.ai_gateway.quota import QuotaError, QuotaExhausted, QuotaService
-class SearchUnavailable(RuntimeError):
-    pass
+class SearchUnavailable(ValueError):
+    "A curated, user-safe research error suitable for a public API response."
 @dataclass
 class Source:
     title: str
@@ -112,7 +112,7 @@ def _search(question: str, *, db=None, user=None, limit: int = 6, topic: str | N
                 QuotaService().mark_uncertain(db, reservation.reservation_id)
             else:
                 _release(db, reservation)
-        raise SearchUnavailable(str(exc)) from exc
+        raise SearchUnavailable("Web search provider is unavailable") from exc
     if reservation:
         _commit(db, reservation, account=usage.get("account") or "unknown", usage=usage, operation="search")
     elif db is not None and user is not None:
@@ -133,7 +133,7 @@ def _extract(sources: list[Source], *, db=None, user=None, question: str = "") -
                 QuotaService().mark_uncertain(db, reservation.reservation_id)
             else:
                 _release(db, reservation)
-        raise SearchUnavailable(str(exc)) from exc
+        raise SearchUnavailable("Web page extraction provider is unavailable") from exc
     if reservation:
         _commit(db, reservation, account=usage.get("account") or "unknown", usage=usage, operation="extract")
     elif db is not None and user is not None:

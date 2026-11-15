@@ -7,6 +7,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from app.api.deps import get_current_user
+from app.core.errors import log_and_mask
 from app.models.user import User
 from app.services import documents as docs
 from app.services.feature_flags import require_feature
@@ -75,8 +76,15 @@ async def extract(file: UploadFile = File(...), _: User = Depends(get_current_us
     extension = _validate(file.filename or "", data)
     try:
         kind, text = docs.extract_any(data, file.filename or "", file.content_type)
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Could not read the document: {exc}") from exc
+    except docs.OcrUnavailable as exc:
+        # A scanned PDF whose pages carry no text layer needs OCR. Say so instead of
+        # reporting an empty extraction as if the document had been read.
+        raise HTTPException(status_code=503, detail=f"OCR is unavailable: {exc}") from exc
+    except Exception as exc:  # noqa: BLE001 - parser detail belongs in the log
+        raise HTTPException(
+            status_code=400,
+            detail=log_and_mask(exc, endpoint="documents/extract", operation="extract_document", fallback="Could not read the document. It may be corrupt or unsupported."),
+        ) from exc
     meta = {"pages": docs.pdf_page_count(data)} if extension == ".pdf" else {}
     return {
         "filename": file.filename,
@@ -102,8 +110,13 @@ async def summarize(
     _validate(file.filename or "", data)
     try:
         _, text = docs.extract_any(data, file.filename or "", file.content_type)
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Could not read the document: {exc}") from exc
+    except docs.OcrUnavailable as exc:
+        raise HTTPException(status_code=503, detail=f"OCR is unavailable: {exc}") from exc
+    except Exception as exc:  # noqa: BLE001 - parser detail belongs in the log
+        raise HTTPException(
+            status_code=400,
+            detail=log_and_mask(exc, endpoint="documents/summarize", operation="extract_document", fallback="Could not read the document. It may be corrupt or unsupported."),
+        ) from exc
     if not text.strip():
         raise HTTPException(status_code=422, detail="No extractable text was found in this file (scanned PDFs need OCR).")
     instructions = {
@@ -136,8 +149,13 @@ async def ask(
     _validate(file.filename or "", data)
     try:
         _, text = docs.extract_any(data, file.filename or "", file.content_type)
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Could not read the document: {exc}") from exc
+    except docs.OcrUnavailable as exc:
+        raise HTTPException(status_code=503, detail=f"OCR is unavailable: {exc}") from exc
+    except Exception as exc:  # noqa: BLE001 - parser detail belongs in the log
+        raise HTTPException(
+            status_code=400,
+            detail=log_and_mask(exc, endpoint="documents/ask", operation="extract_document", fallback="Could not read the document. It may be corrupt or unsupported."),
+        ) from exc
     if not text.strip():
         raise HTTPException(status_code=422, detail="No extractable text was found in this file")
     prompt = (
@@ -171,9 +189,15 @@ def generate(request: GenerateRequest, _: User = Depends(get_current_user)):
             rows = docs.table_from_text(request.content)
             payload = docs.generate_csv(rows)
     except ImportError as exc:
-        raise HTTPException(status_code=501, detail=f"Generator library not installed: {exc}") from exc
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Could not generate the document: {exc}") from exc
+        raise HTTPException(
+            status_code=501,
+            detail=log_and_mask(exc, endpoint="documents/generate", operation="generate_document", fallback="This document generator is not installed on the server."),
+        ) from exc
+    except Exception as exc:  # noqa: BLE001 - generator detail belongs in the log
+        raise HTTPException(
+            status_code=400,
+            detail=log_and_mask(exc, endpoint="documents/generate", operation="generate_document", fallback="Could not generate the document from the supplied content."),
+        ) from exc
     return _file_response(payload, request.format, request.filename or request.title or "document")
 
 

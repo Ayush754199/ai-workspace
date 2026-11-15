@@ -35,6 +35,17 @@ export type ChatMessage = {
   error?: string;
 };
 
+export type GeneratedChatFile = {
+  attachment_id: number;
+  conversation_id: number | null;
+  filename: string;
+  content_type: string;
+  size_bytes: number;
+  provider: string;
+  model: string;
+  data_base64: string;
+};
+
 export type Conversation = {
   id: number;
   title: string;
@@ -110,6 +121,11 @@ export const chatV2 = {
       method: "POST",
       body: JSON.stringify({ message_id: messageId }),
     }),
+  generateDocument: (token: string, id: number, body: { prompt: string; format: "xlsx" | "docx" | "pptx" | "csv" | "pdf"; title?: string }) =>
+    request<GeneratedChatFile>(token, `/chat/v2/documents/generate`, {
+      method: "POST",
+      body: JSON.stringify({ ...body, conversation_id: id }),
+    }),
   upload: (token: string, file: File, conversationId?: number) => {
     const form = new FormData();
     form.append("file", file);
@@ -133,6 +149,8 @@ export const chatV2 = {
         signal,
       });
     } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") throw error;
+      if (error instanceof Error && error.name === "AbortError") throw error;
       throw new Error(`Cannot connect to the AI Workspace backend at ${apiBaseUrl}. The service may be starting, unavailable, or blocked by CORS.`);
     }
     if (!response.ok || !response.body) {

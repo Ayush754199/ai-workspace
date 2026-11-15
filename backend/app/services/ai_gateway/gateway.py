@@ -15,7 +15,7 @@ from .providers import (
     MockProvider,
     OpenRouterProvider,
 )
-from .registry import MODEL_REGISTRY, ModelSpec
+from .registry import MODEL_REGISTRY, ModelSpec, merge_registry, spec_from_db_row
 from .quota import QuotaService
 from app.services.provider_budget import ProviderBudgetError
 
@@ -52,6 +52,9 @@ class AIGateway:
     def __init__(self, *, registry: tuple[ModelSpec, ...] | None = None) -> None:
         self.mode = settings.AI_GATEWAY_MODE.lower().strip()
         self.registry = registry or MODEL_REGISTRY
+        # Model ids that came only from the database (per provider); filled by
+        # ``eligible_routes``. Never contains credentials.
+        self._db_overrides_model: dict[str, str] = {}
         # Admin-configurable preference order; settings values are the fallback.
         self.order: tuple[str, ...] = tuple(name.strip().lower() for name in settings.FREE_PROVIDERS if name.strip())
 
@@ -59,34 +62,115 @@ class AIGateway:
         if order:
             self.order = tuple(str(name).strip().lower() for name in order if str(name).strip())
 
-    def eligible_routes(self, capability: str = "chat", db: Session | None = None) -> tuple[Route, ...]:
-        if self.mode == "dev":
-            return (Route("mock", "mock-chat"),)
-        registry = self.registry
-        if db is not None:
-            from app.models.gateway import Provider, ProviderModel
+    def registry_for(self, db: Session | None = None) -> tuple[ModelSpec, ...]:
+        """Static registry merged with the admin's database overrides.
+
+        A fresh database (no ``provider_models`` rows) must not disable chat: the
+        static registry is the baseline and the database only overrides it. Before
+        Phase 1 an empty or partial table either fell back to an unverified static
+        entry or replaced the whole registry, which is why "empty database + a
+        valid API key" produced "No eligible free AI provider".
+        """
+        if db is None:
+            return self.registry
+        from app.models.gateway import Provider, ProviderModel
+
+        try:
+            # Disabled rows are included on purpose: a database row must be able to
+            # turn a statically enabled model off, so filtering here would silently
+            # re-enable it through the merge.
             rows = (
                 db.query(ProviderModel, Provider)
                 .join(Provider, Provider.id == ProviderModel.provider_id)
-                .filter(Provider.enabled.is_(True), ProviderModel.enabled.is_(True))
                 .all()
             )
-            if rows:
-                registry = tuple(
-                    ModelSpec(
-                        "huggingface" if provider.name.casefold().replace(" ", "") == "huggingface" else provider.name.casefold(),
-                        model.model,
-                        model.enabled,
-                        model.is_free,
-                        frozenset(model.capabilities or []),
-                        max_input_tokens=model.max_input_tokens,
-                        max_output_tokens=model.max_output_tokens,
-                        availability=model.availability,
-                        verified_at=model.verified_at,
-                        restrictions=tuple(model.restrictions or []),
-                    )
-                    for model, provider in rows
-                )
+        except Exception:  # noqa: BLE001 - a missing table must not kill chat
+            return self.registry
+        overrides = tuple(
+            spec_from_db_row(model, provider)
+            for model, provider in rows
+            if provider.enabled
+        )
+        if not overrides:
+            return self.registry
+        merged = merge_registry(self.registry, overrides)
+        # Provider.enabled is a separate admin switch from ProviderModel.enabled.
+        # A disabled provider must suppress its static models even if its model rows
+        # remain enabled from before the provider was toggled off.
+        disabled_providers = {
+            provider.name.casefold().replace(" ", "")
+            for _model, provider in rows
+            if not provider.enabled
+        }
+        if disabled_providers:
+            merged = tuple(
+                spec for spec in merged
+                if spec.provider.casefold().replace(" ", "") not in disabled_providers
+            )
+        return merged
+
+    def provider_ready(self, provider: str) -> tuple[bool, str]:
+        """Is this provider's credential configuration present right now?
+
+        Every provider is validated the same way -- through the environment-backed
+        credential pool -- so a provider whose key is missing or still a placeholder
+        is never selected, and a route with no usable configuration is never called.
+        """
+        if provider in {"mock"}:
+            return True, ""
+        label = {
+            "huggingface": "Hugging Face",
+            "gemini": "Gemini",
+            "groq": "Groq",
+            "openrouter": "OpenRouter",
+        }.get(provider)
+        if label is not None:
+            # Model readiness is checked before fetching credentials so that a
+            # provider with a DB-only model can still be used, but a bare key never
+            # turns on a guessed model id.
+            if provider == "groq" and not (settings.GROQ_MODEL or self._db_model_for("groq")):
+                return False, "Groq model id is not configured in GROQ_MODEL or the provider registry"
+            try:
+                configured_credentials = get_provider_credentials(label)
+            except ValueError:
+                return False, f"{label} adapter does not support credential configuration"
+            if not configured_credentials:
+                return False, f"{label} API key is not configured"
+            # Having a key is not enough for model families that require an
+            # operator-verified account/model id; do not route a key at a guessed
+            # or empty identifier.
+            if provider == "huggingface" and not (settings.HF_TEXT_MODEL or self._db_model_for("huggingface")):
+                return False, "Hugging Face text model id is not configured"
+            return True, ""
+        if provider == "muse_spark":
+            configured = bool(settings.MUSE_API_URL and settings.MUSE_API_KEY and settings.MUSE_SPARK_MODEL)
+            return configured, "" if configured else "Muse Spark endpoint/key/model is not configured"
+        if provider == "cloudflare":
+            configured = bool(
+                settings.CLOUDFLARE_ACCOUNT_ID
+                and settings.CLOUDFLARE_API_TOKEN
+                and settings.CLOUDFLARE_RESEARCH_MODEL
+                and settings.CLOUDFLARE_RESEARCH_MODEL_VERIFIED
+            )
+            return configured, "" if configured else "Cloudflare research is not configured or verified"
+        return False, f"Provider '{provider}' has no enabled adapter"
+
+    def _db_model_for(self, provider: str) -> str:
+        """Model id supplied by a database row for this provider (may be empty)."""
+        return self._db_overrides_model.get(provider, "")
+
+    def eligible_routes(self, capability: str = "chat", db: Session | None = None) -> tuple[Route, ...]:
+        if self.mode == "dev":
+            return (Route("mock", "mock-chat"),)
+        registry = self.registry_for(db)
+        # Models supplied by *enabled* database overrides (no environment default,
+        # e.g. a Groq model an administrator verified) so provider() can build them.
+        # Disabled rows are tombstones and must not satisfy the model readiness check.
+        self._db_overrides_model = {
+            spec.provider: spec.model
+            for spec in registry
+            if spec.source == "database" and spec.enabled and (spec.model or "").strip()
+        }
         routes = []
         for spec in registry:
             if spec.provider == "mock":
@@ -95,16 +179,16 @@ class AIGateway:
                 continue
             if spec.provider not in self.preferences():
                 continue
-            if spec.provider == "openrouter":
-                if not get_provider_credentials("OpenRouter"):
-                    continue
-            if spec.provider == "groq" and not get_provider_credentials("Groq"):
+            ready, _reason = self.provider_ready(spec.provider)
+            if not ready:
                 continue
-            if spec.provider in {"gemini", "huggingface"} and not get_provider_credentials(
-                "Gemini" if spec.provider == "gemini" else "Hugging Face"
-            ):
+            if not (spec.model or "").strip():
+                # A provider whose model id was never configured cannot be called;
+                # selecting it would only fail later, after quota was reserved.
                 continue
-            routes.append(Route(spec.provider, spec.model, True))
+            candidate = Route(spec.provider, spec.model, True)
+            if candidate not in routes:
+                routes.append(candidate)
         if (
             capability in {"chat", "research", "multimodal"}
             and settings.MUSE_SPARK_VERIFIED
@@ -139,7 +223,33 @@ class AIGateway:
         routes = self.eligible_routes(capability, db=db)
         if routes:
             return routes[0]
-        raise GatewayUnavailableError("No configured eligible free AI provider is available")
+        raise GatewayUnavailableError(self.unavailable_message(db))
+
+    def unavailable_message(self, db: Session | None = None) -> str:
+        """Explain why nothing is routable without revealing any credential.
+
+        Returning one opaque string made a fresh deployment impossible to debug:
+        "no eligible provider" looked identical whether the key was missing, the
+        provider was outside the free allow-list, or the model was unverified.
+        """
+        registry = self.registry_for(db)
+        reasons: list[str] = []
+        for spec in registry:
+            if spec.provider == "mock" or not spec.capabilities.intersection({"chat", "research", "multimodal"}):
+                continue
+            if spec.provider not in self.preferences():
+                reasons.append(f"{spec.provider}: not in FREE_PROVIDERS")
+                continue
+            ready, reason = self.provider_ready(spec.provider)
+            if not ready:
+                reasons.append(f"{spec.provider}: {reason}")
+            elif not spec.verified_free:
+                reasons.append(f"{spec.provider}: model not verified as free/available")
+        detail = "; ".join(dict.fromkeys(reasons)) or "no provider is configured"
+        return (
+            "No eligible free AI provider is available. Configure an API key "
+            f"(OPENROUTER_KEY_1, GEMINI_KEY_1 or GROQ_API_KEY_1). Reasons: {detail}"
+        )
 
     def apply_admin_order(self, db: Session) -> None:
         """Read the admin-configured provider order from the database (if any)."""
@@ -153,12 +263,21 @@ class AIGateway:
             pass
 
     def provider(self, route: Route):
+        '''Construct a route adapter without crossing the credential boundary.
+
+        Registry entries and environment values can change between route selection
+        and execution (admin toggled a key, deploy config rotated). Re-check readiness
+        here so every provider -- not just OpenRouter -- fails closed.
+        '''
         if route.provider == "mock":
             return MockProvider()
+        ready, reason = self.provider_ready(route.provider)
+        if not ready:
+            raise GatewayUnavailableError(f"{route.provider} is not configured: {reason}")
         if route.provider == "openrouter":
             credentials = get_provider_credentials("OpenRouter")
             if not credentials:
-                raise GatewayUnavailableError("OpenRouter is disabled until OPENROUTER_KEY_1 or OPENROUTER_KEY_2 is configured")
+                raise GatewayUnavailableError("OpenRouter is disabled until an OPENROUTER_KEY_n is configured")
             return OpenRouterProvider(
                 credentials, route.model,
                 base_url=settings.OPENROUTER_BASE_URL,
@@ -169,12 +288,12 @@ class AIGateway:
         if route.provider == "huggingface":
             return HuggingFaceGatewayProvider(
                 settings.HF_TEXT_API_URL,
-                settings.HF_TEXT_MODEL or route.model,
+                settings.HF_TEXT_MODEL or route.model or self._db_model_for("huggingface"),
             )
         if route.provider == "groq":
             return GroqGatewayProvider(
                 settings.GROQ_API_URL,
-                settings.GROQ_MODEL or route.model,
+                settings.GROQ_MODEL or self._db_model_for("groq") or route.model,
                 timeout=settings.AI_REQUEST_TIMEOUT_SECONDS,
             )
         if route.provider == "muse_spark":
@@ -303,7 +422,7 @@ class AIGateway:
     ) -> tuple[str, Route]:
         routes = self.eligible_routes(capability, db=db)
         if not routes:
-            raise GatewayUnavailableError("No configured eligible free AI provider is available")
+            raise GatewayUnavailableError(self.unavailable_message(db))
         quotas = quota_service or QuotaService()
         reservation = quotas.reserve(
             db,
@@ -336,5 +455,11 @@ class AIGateway:
                 if not exc.retryable:
                     quotas.release(db, reservation.reservation_id, failure=True)
                     raise
+            except Exception:
+                # Any unexpected adapter error must not strand the already-reserved
+                # unit. Provider adapters normally normalize errors, but an unrelated
+                # integration failure can still escape their boundary.
+                quotas.release(db, reservation.reservation_id, failure=True)
+                raise
         quotas.release(db, reservation.reservation_id, failure=True)
         raise GatewayUnavailableError("All eligible providers failed transiently") from last_error

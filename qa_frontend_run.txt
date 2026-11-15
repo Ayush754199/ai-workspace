@@ -1,0 +1,24 @@
+
+> frontend@1.0.0 test
+> vitest
+
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+[7m[1m[34m DEV [39m[22m[27m [34mv1.6.1[39m [90mC:/Users/aadiu/OneDrive/Desktop/AI Workspace v1.0/frontend[39m
+
+ [32m✓[39m src/tests/DbDown.test.tsx [2m ([22m[2m2 tests[22m[2m)[22m[33m 739[2mms[22m[39m
+ [32m✓[39m src/tests/VideoEditor.test.tsx [2m ([22m[2m3 tests[22m[2m)[22m[33m 749[2mms[22m[39m
+ [32m✓[39m src/tests/PhasesUI.test.tsx [2m ([22m[2m6 tests[22m[2m)[22m[33m 933[2mms[22m[39m
+ [32m✓[39m src/tests/Regression.test.tsx [2m ([22m[2m2 tests[22m[2m)[22m[33m 834[2mms[22m[39m
+ [32m✓[39m src/tests/ChatSidebar.test.tsx [2m ([22m[2m5 tests[22m[2m)[22m[33m 1748[2mms[22m[39m
+ [32m✓[39m src/tests/ChatRooms.test.tsx [2m ([22m[2m8 tests[22m[2m)[22m[33m 2040[2mms[22m[39m
+ [32m✓[39m src/tests/App.test.tsx [2m ([22m[2m1 test[22m[2m)[22m[33m 342[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m7 passed[39m[22m[90m (7)[39m
+[2m      Tests [22m [1m[32m27 passed[39m[22m[90m (27)[39m
+[2m   Start at [22m 20:05:53
+[2m   Duration [22m 30.32s[2m (transform 3.69s, setup 13.99s, collect 8.79s, tests 7.38s, environment 85.98s, prepare 24.98s)[22m
+
+
+[1m[7m[32m PASS [39m[27m[22m[32m Waiting for file changes...[39m
+       [2mpress [22m[1mh[22m[2m to show help[22m[2m, [22m[2mpress [22m[1mq[22m[2m to quit[22m

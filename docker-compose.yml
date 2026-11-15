@@ -11,6 +11,13 @@ services:
       # SQLite on a mounted volume; switch to postgres:// URL for a managed DB.
       DATABASE_URL: sqlite:////data/app.db
       AI_GATEWAY_MODE: live
+      # The API is production-shaped in this image, so a missing/short JWT_SECRET
+      # stops the container with a clear message instead of silently signing with
+      # a random key. Set it in backend/.env (see backend/.env.example).
+      ENVIRONMENT: production
+      # Uploads must survive `docker compose down/up`: they live on the same volume
+      # as the database, not inside the image.
+      ATTACHMENT_STORAGE_DIR: /data/attachments
     ports:
       - "8000:8000"
     volumes:

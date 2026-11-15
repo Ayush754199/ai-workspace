@@ -22,6 +22,9 @@ class Settings(BaseSettings):
 
     API_V1_STR: str = "/api/v1"
     PROJECT_NAME: str = "AI Workspace Backend"
+    # "production" makes a missing/short JWT_SECRET a startup error instead of an
+    # ephemeral key that silently signs everyone out on the next restart.
+    ENVIRONMENT: str = "development"
     # There is intentionally no fallback.  A predictable signing key would let an
     # attacker forge bearer tokens when deployment configuration is incomplete.
     JWT_SECRET: str = Field(min_length=32)
@@ -74,6 +77,12 @@ class Settings(BaseSettings):
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
     # OpenRouter's free router selects a currently available free model per request.
     OPENROUTER_MODEL: str = "openrouter/free"
+    # Provider-level database settings may append additional allowed routes, but
+    # these environment keys remain the credential source of truth.
+    GROQ_API_KEY_1: str = ""
+    GROQ_API_KEY_2: str = ""
+    GROQ_API_KEY_3: str = ""
+    OPENROUTER_KEY_3: str = ""
     # Tavily credentials are backend-only. Accept the previously deployed misspelling
     # as a compatibility alias; use the canonical TAVILY_API_KEY_n names going forward.
     TAVILY_API_KEY_1: str = Field(default="", validation_alias=AliasChoices("TAVILY_API_KEY_1", "Tailvy_API_Key_1"))
@@ -89,6 +98,15 @@ class Settings(BaseSettings):
     # Server-side rate limiting for AI endpoints (per user, per minute).
     AI_RATE_LIMIT_PER_MINUTE: int = Field(default=30, ge=1)
     AUTH_RATE_LIMIT_PER_MINUTE: int = Field(default=10, ge=1)
+    # Proxy headers (X-Forwarded-For / X-Real-IP) are honoured ONLY when the TCP
+    # peer is inside one of these CIDRs. A browser can send any header it likes, so
+    # trusting them unconditionally lets a client rotate its own rate-limit bucket.
+    # The defaults cover Docker/nginx on a private network, Render's local edge and
+    # a local dev proxy; put an explicit public CIDR here if you front the API with
+    # a proxy outside those ranges.
+    TRUSTED_PROXY_CIDRS: str = (
+        "127.0.0.0/8,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,fd00::/8"
+    )
     # Comma-separated origins allowed to call the API from a browser. Empty means
     # wildcard (development only) -- always set this in production.
     CORS_ORIGINS: str = (
@@ -169,9 +187,16 @@ class Settings(BaseSettings):
     @field_validator("JWT_SECRET")
     @classmethod
     def validate_jwt_secret(cls, value: str) -> str:
-        if value.strip().lower() in {"super-secret-key", "changeme", "secret"}:
+        normalized = value.strip().lower()
+        if normalized in {"super-secret-key", "changeme", "secret"}:
             raise ValueError("JWT_SECRET must be a non-default secure value")
+        if any(word in normalized for word in ("changeme", "super-secret", "default-secret", "replace-with", "secret-is-not")):
+            raise ValueError("JWT_SECRET must not contain a known placeholder phrase")
         return value
+
+    @property
+    def is_production(self) -> bool:
+        return self.ENVIRONMENT.strip().lower() in {"production", "prod"}
 
 
 def _load_settings() -> "Settings":
@@ -187,6 +212,9 @@ def _load_settings() -> "Settings":
     replaced by a random value and the operator is told to persist a real one,
     otherwise every restart signs users out.
     """
+    import logging
+
+    logger = logging.getLogger("app.config")
     try:
         return Settings()
     except Exception as exc:  # noqa: BLE001 - only JWT_SECRET is repaired here
@@ -194,10 +222,17 @@ def _load_settings() -> "Settings":
         if "JWT_SECRET" not in message:
             raise
 
-    import logging
+    if os.getenv("ENVIRONMENT", "").strip().lower() in {"production", "prod"}:
+        # A hosted deployment must never run on a throwaway signing key: tokens
+        # would break on the next restart and are invalid on a second instance.
+        raise RuntimeError(
+            "JWT_SECRET is missing or shorter than 32 characters and ENVIRONMENT=production.\n"
+            "Fix: set JWT_SECRET in the service environment, then redeploy.\n"
+            "Generate one with: python -c \"import secrets; print(secrets.token_urlsafe(48))\""
+        )
+
     import secrets as _secrets
 
-    logger = logging.getLogger("app.config")
     logger.error(
         "JWT_SECRET is missing or shorter than 32 characters; using an ephemeral "
         "random secret for this process. Users will be signed out on every restart.\n"

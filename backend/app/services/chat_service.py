@@ -28,7 +28,7 @@ MAX_CONTEXT_CHARS = 24_000
 
 DEFAULT_SYSTEM_PROMPT = (
     "You are the AI Workspace assistant inside a dual-pane chat and artifact interface. "
-    "For ordinary chat, answer directly and briefly (about 1–3 lines). "
+    "For ordinary chat, answer directly in natural language and briefly (about 1–3 lines); do not output source code, markdown code fences, or a file unless the user explicitly asks for code or a downloadable file. "
     "For report, document, spreadsheet, story, multi-page content, or source-code requests, "
     "put the entire artifact in exactly one fenced block. Its first line starts exactly with file_pdf:Title:report.html, "
     "file_excel:Title:data.csv, or file_code:Title:main.py immediately after the opening triple backticks. "
@@ -121,27 +121,8 @@ class ModelOption:
 
 
 def _db_models(db: Session) -> tuple[ModelSpec, ...]:
-    rows = (
-        db.query(ProviderModel, Provider)
-        .join(Provider, Provider.id == ProviderModel.provider_id)
-        .filter(Provider.enabled.is_(True), ProviderModel.enabled.is_(True))
-        .all()
-    )
-    return tuple(
-        ModelSpec(
-            "huggingface" if provider.name.casefold().replace(" ", "") == "huggingface" else provider.name.casefold(),
-            model.model,
-            model.enabled,
-            model.is_free,
-            frozenset(model.capabilities or []),
-            max_input_tokens=model.max_input_tokens,
-            max_output_tokens=model.max_output_tokens,
-            availability=model.availability,
-            verified_at=model.verified_at,
-            restrictions=tuple(model.restrictions or []),
-        )
-        for model, provider in rows
-    )
+    """Models visible to the client: static registry merged with DB overrides."""
+    return AIGateway().registry_for(db)
 
 
 def available_models(db: Session, capability: str = "chat") -> list[dict]:
@@ -167,17 +148,20 @@ def available_models(db: Session, capability: str = "chat") -> list[dict]:
         )
     ]
     for spec in _db_models(db):
-        if capability not in spec.capabilities:
+        if spec.provider == "mock" or capability not in spec.capabilities:
             continue
         selectable = (spec.provider, spec.model) in live
         reason = None
         if not selectable:
+            ready, ready_reason = gateway.provider_ready(spec.provider)
             if spec.availability != "available":
                 reason = f"provider availability: {spec.availability}"
             elif not spec.verified_free:
                 reason = "not verified as free by an administrator"
             elif spec.provider not in gateway.preferences():
                 reason = "provider is outside the free allow-list"
+            elif not ready:
+                reason = ready_reason
             else:
                 reason = "provider credentials are not configured"
         options.append(
@@ -209,9 +193,7 @@ def resolve_model(db: Session, requested: str | None, capability: str = "chat", 
     if gateway.mode == "dev" and not live:
         live = gateway.eligible_routes(capability) or live
     if not live:
-        raise GatewayUnavailableError(
-            "No eligible free AI provider is available. An administrator must enable and verify one."
-        )
+        raise GatewayUnavailableError(gateway.unavailable_message(db))
     if not requested or requested == "auto":
         if preferred_provider:
             live = tuple(sorted(live, key=lambda route: 0 if route.provider == preferred_provider else 1))
@@ -223,7 +205,8 @@ def resolve_model(db: Session, requested: str | None, capability: str = "chat", 
             if route.provider == provider and route.model == model:
                 return ResolvedModel(route.provider, route.model)
         raise GatewayUnavailableError(
-            f"Model {requested} is not enabled, verified-free or configured on this server"
+            "That model is not enabled, verified-free or configured on this server. "
+            "Pick 'Auto' or a model listed as selectable."
         )
     return ResolvedModel(live[0].provider, live[0].model)
 

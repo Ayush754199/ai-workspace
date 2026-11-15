@@ -16,6 +16,7 @@ except ModuleNotFoundError:
 from app.api.deps import get_current_user
 from app.api.deps import require_legacy_ai_enabled
 from app.core.config import settings
+from app.core.errors import log_and_mask
 from app.services.ai_orchestrator import AIOrchestrator
 from app.services.ai_service import AIService
 from app.services.ai_provider import OllamaProvider
@@ -110,17 +111,14 @@ async def generate_ai_response(
         # not a server bug, and the client should retry later.
         raise HTTPException(
             status_code=503,
-            detail=(
-                f"AI capacity exhausted (HTTP {exc.status_code}). "
-                f"Retry after {exc.cooldown_seconds}s. {exc.raw_detail}"
-            ),
+            detail=f"AI capacity exhausted (HTTP {exc.status_code}). Retry after {exc.cooldown_seconds}s.",
             headers={"Retry-After": str(exc.cooldown_seconds)},
         ) from exc
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"AI generation failed: {str(e)}",
-        )
+            detail=log_and_mask(e, endpoint="ai/generate", operation="ai_generate", fallback="AI generation failed. Please retry."),
+        ) from e
 
 
 @router.post("/analyze/file", response_model=AIResponse)
@@ -169,17 +167,14 @@ async def analyze_file(
     except ProviderRateLimitError as exc:
         raise HTTPException(
             status_code=503,
-            detail=(
-                f"AI capacity exhausted (HTTP {exc.status_code}). "
-                f"Retry after {exc.cooldown_seconds}s. {exc.raw_detail}"
-            ),
+            detail=f"AI capacity exhausted (HTTP {exc.status_code}). Retry after {exc.cooldown_seconds}s.",
             headers={"Retry-After": str(exc.cooldown_seconds)},
         ) from exc
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"File analysis failed: {str(e)}",
-        )
+            detail=log_and_mask(e, endpoint="ai/analyze/file", operation="ai_file_analysis", fallback="File analysis failed. Please retry."),
+        ) from e
 
 
 @router.post("/orchestrate")
@@ -232,7 +227,10 @@ async def orchestrate_ai_message(
                 # Preserve the original provider/application error. A failed
                 # release is observable through the reservation ledger.
                 pass
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=500,
+            detail=log_and_mask(exc, endpoint="ai/orchestrate", operation="ai_orchestrate", fallback="AI orchestration failed. Please retry."),
+        ) from exc
 
 
 @router.post("/web-search/search")

@@ -278,6 +278,8 @@ def test_corrupt_office_upload_is_a_400_not_a_500():
 def test_valid_office_upload_still_extracts_text():
     from app.api.v1.endpoints.chat_v2 import _extract_upload_text
 
-    assert "Heading" in _extract_upload_text("document", _docx_bytes(), "ok.docx")
-    assert "a | 1" in _extract_upload_text("document", _xlsx_bytes(), "ok.xlsx")
-    assert "Slide one" in _extract_upload_text("document", _pptx_bytes(), "ok.pptx")
+    # The contract is (text, ocr_unavailable); Office text never needs OCR.
+    docx_text, docx_ocr = _extract_upload_text("document", _docx_bytes(), "ok.docx")
+    assert "Heading" in docx_text and docx_ocr is False
+    assert "a | 1" in _extract_upload_text("document", _xlsx_bytes(), "ok.xlsx")[0]
+    assert "Slide one" in _extract_upload_text("document", _pptx_bytes(), "ok.pptx")[0]

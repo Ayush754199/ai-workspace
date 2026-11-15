@@ -12,6 +12,7 @@ proxy (see docs/DEPLOYMENT.md).
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import threading
 import time
 import uuid
@@ -47,11 +48,52 @@ class SlidingWindowLimiter:
             return True, 0
 
 
+def _trusted_networks() -> tuple[ipaddress._BaseNetwork, ...]:
+    """Parse TRUSTED_PROXY_CIDRS once per call; a bad entry is ignored, never fatal."""
+    networks: list[ipaddress._BaseNetwork] = []
+    for raw in str(getattr(settings, "TRUSTED_PROXY_CIDRS", "")).split(","):
+        candidate = raw.strip()
+        if not candidate:
+            continue
+        try:
+            networks.append(ipaddress.ip_network(candidate, strict=False))
+        except ValueError:
+            continue
+    return tuple(networks)
+
+
+def _is_trusted_proxy(host: str, networks: tuple[ipaddress._BaseNetwork, ...]) -> bool:
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return any(address in network for network in networks)
+
+
 def client_ip(request: Request) -> str:
+    """Resolve the caller's address without trusting headers sent by strangers.
+
+    ``X-Forwarded-For`` is client-controllable: a browser may send any value, so
+    honouring it unconditionally let one client rotate its own rate-limit bucket
+    (and poison the audit log) on every request. The forwarding hops are only
+    consulted when the TCP peer itself is a configured trusted proxy. The chain is
+    walked right-to-left -- the address we can vouch for is the one appended by the
+    closest trusted proxy -- and the walk stops at the first untrusted hop.
+    """
+    peer = request.client.host if request.client else "unknown"
+    networks = _trusted_networks()
+    if not networks or not _is_trusted_proxy(peer, networks):
+        return peer
     forwarded = request.headers.get("x-forwarded-for", "")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
+    candidates = [part.strip() for part in forwarded.split(",") if part.strip()]
+    if not candidates:
+        real_ip = request.headers.get("x-real-ip", "").strip()
+        candidates = [real_ip] if real_ip else []
+    # Right to left: the last entry was added by the proxy we directly trust.
+    for candidate in reversed(candidates):
+        if not _is_trusted_proxy(candidate, networks):
+            return candidate
+    return candidates[0] if candidates else peer
 
 
 auth_limiter = SlidingWindowLimiter(settings.AUTH_RATE_LIMIT_PER_MINUTE)

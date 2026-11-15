@@ -14,6 +14,19 @@ import zipfile
 MAX_CHARS = 200_000
 
 
+class OcrUnavailable(RuntimeError):
+    """OCR was needed but no engine/provider is available.
+
+    Re-exported from ``app.services.vision`` so callers can import it from the
+    module they already use. A document whose pages carry no text layer is never
+    reported as "processed": the upload endpoint answers with a controlled 503 and
+    chat attachments set ``ocr_unavailable``.
+    """
+
+
+
+
+
 def extract_pdf_text(data: bytes, *, max_chars: int = MAX_CHARS) -> str:
     # PyMuPDF gives stable page boundaries and is more reliable for mixed PDF
     # layouts. Keep pypdf as a compatibility fallback for minimal installs.
@@ -48,16 +61,38 @@ def extract_pdf_text(data: bytes, *, max_chars: int = MAX_CHARS) -> str:
         return "\n\n".join(chunks).strip()[:max_chars]
 
 
-def extract_pdf_ocr(data: bytes, *, max_chars: int = MAX_CHARS) -> str:
-    """OCR scanned pages when a local OCR engine or configured vision model exists."""
+def extract_pdf_ocr(data: bytes, *, max_chars: int = MAX_CHARS, strict: bool = False) -> str:
+    """OCR pages that carry no text layer.
+
+    The local engine (``pytesseract``) is tried first because it is free and never
+    sends the document anywhere; the configured vision provider is the fallback.
+
+    ``strict=False`` (default, used by ``extract_any`` and chat attachments) keeps the
+    historical behaviour: whatever was extracted is returned, and an unreadable page
+    simply contributes nothing. ``strict=True`` (used by ``/documents/*``) raises
+    :class:`OcrUnavailable` when pages needed OCR and no engine produced text, so a
+    scanned PDF is never silently reported as processed.
+    """
     try:
         import fitz
     except ImportError:
+        # No rasterizer: scanned pages cannot be turned into images here. Digital
+        # PDFs are unaffected (extract_pdf_text uses pypdf), and the caller decides
+        # whether an unreadable scan is an error (strict) or just "no extra text".
+        if strict and _has_image_pages(data):
+            raise OcrUnavailable(
+                "No OCR engine is available on this server, so scanned pages cannot be read. "
+                "Install PyMuPDF plus Tesseract, or configure GEMINI_KEY_1 for vision OCR."
+            ) from None
         return ""
     parts: list[str] = []
+    ocr_needed = False
+    ocr_failed = False
+    failure_detail = ""
     for index, page in enumerate(fitz.open(stream=data, filetype="pdf"), start=1):
         if page.get_text("text").strip():
             continue
+        ocr_needed = True
         pixmap = page.get_pixmap(matrix=fitz.Matrix(1.5, 1.5), alpha=False)
         image_data = pixmap.tobytes("png")
         text = ""
@@ -66,12 +101,44 @@ def extract_pdf_ocr(data: bytes, *, max_chars: int = MAX_CHARS) -> str:
             from PIL import Image
             text = pytesseract.image_to_string(Image.open(io.BytesIO(image_data))).strip()
         except (ImportError, OSError):
-            text = ocr_image(image_data).strip()
+            try:
+                text = ocr_image(image_data).strip()
+            except OcrUnavailable as exc:
+                ocr_failed = True
+                failure_detail = str(exc)
+                break
         if text:
             parts.append(f"## Page {index} (OCR)\n{text}")
         if sum(len(part) for part in parts) >= max_chars:
             break
+    if strict and ocr_needed and not parts and ocr_failed:
+        raise OcrUnavailable(failure_detail or "No OCR engine is available on this server")
     return "\n\n".join(parts)[:max_chars]
+
+
+def _has_image_pages(data: bytes) -> bool:
+    """Best-effort: does this PDF contain pages without a text layer?
+
+    Uses PyMuPDF when present and falls back to pypdf (always installed), so the
+    answer does not depend on an optional dependency.
+    """
+    try:
+        import fitz
+
+        return any(not page.get_text("text").strip() for page in fitz.open(stream=data, filetype="pdf"))
+    except ImportError:
+        pass
+    except Exception:  # noqa: BLE001 - an unreadable PDF is handled by the caller
+        return False
+    try:
+        from pypdf import PdfReader
+
+        return any(
+            not (page.extract_text() or "").strip()
+            for page in PdfReader(io.BytesIO(data)).pages
+        )
+    except Exception:  # noqa: BLE001 - unreadable/corrupt PDF: let the caller report it
+        return False
 
 
 def pdf_page_count(data: bytes) -> int:
@@ -121,25 +188,26 @@ def extract_xlsx_text(data: bytes, *, max_chars: int = MAX_CHARS) -> str:
 
 
 def ocr_image(data: bytes) -> str:
-    """OCR via the configured Gemini vision model.
+    """OCR an image through the configured vision provider.
 
-    There is no local OCR engine in this deployment, so an unconfigured server
-    returns an empty string and the caller reports that OCR was unavailable
-    rather than returning invented text.
+    Raises :class:`OcrUnavailable` when no provider is configured, so the caller can
+    surface a controlled message instead of pretending the image was read.
     """
-    if not _gemini_configured():
-        return ""
+    from app.services.vision import OcrUnavailable as vision_unavailable
     from app.services.vision import ocr as gemini_ocr
 
-    return gemini_ocr(data)
+    try:
+        return gemini_ocr(data)
+    except vision_unavailable as exc:
+        raise OcrUnavailable(str(exc)) from exc
 
 
 def _gemini_configured() -> bool:
     try:
-        from backend.key_rotator import get_provider_credentials
+        from app.services.vision import is_configured
 
-        return bool(get_provider_credentials("Gemini"))
-    except Exception:
+        return is_configured()
+    except Exception:  # noqa: BLE001 - availability probe must never raise
         return False
 
 
@@ -152,7 +220,9 @@ def extract_any(data: bytes, filename: str, content_type: str | None = None) -> 
         # A scanned PDF may contain a mixture of text and image-only pages.
         # OCR only the pages without a text layer, and retain the page labels
         # emitted by extract_pdf_ocr so answers can cite their source page.
-        ocr_text = extract_pdf_ocr(data)
+        # ``strict`` turns "pages needed OCR and none was possible" into a clear
+        # OcrUnavailable instead of an empty, apparently-successful extraction.
+        ocr_text = extract_pdf_ocr(data, strict=True)
         if ocr_text:
             text = f"{text}\n\n{ocr_text}".strip() if text else ocr_text
         return "pdf", text
@@ -167,6 +237,8 @@ def extract_any(data: bytes, filename: str, content_type: str | None = None) -> 
     if name.endswith((".txt", ".md")) or ctype.startswith("text/"):
         return "text", data.decode("utf-8", errors="replace")[:MAX_CHARS]
     if name.endswith((".png", ".jpg", ".jpeg", ".webp")) or ctype.startswith("image/"):
+        # An image has no text layer at all: OCR is the only way to read it, so a
+        # missing engine must be reported (strict callers) rather than returning "".
         return "image", ocr_image(data)
     if zipfile.is_zipfile(io.BytesIO(data)):
         return "archive", ""

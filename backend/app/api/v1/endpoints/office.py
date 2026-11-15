@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
+from app.core.errors import log_and_mask
 from app.core.database import get_db
 from app.models.user import User
 from app.services.feature_flags import require_feature
@@ -84,7 +85,7 @@ async def generate(
             system_prompt="You are a professional document author. Follow the required output format exactly.",
         )
     except (GatewayUnavailableError, ChatConcurrencyError, RuntimeError) as exc:
-        raise HTTPException(status_code=503, detail=f"AI authoring is unavailable: {exc}") from exc
+        raise HTTPException(status_code=503, detail=log_and_mask(exc, endpoint="office/generate", operation="office_authoring", fallback="AI authoring is unavailable. Please retry.")) from exc
 
     title = request.title.strip() or request.prompt.strip()[:80]
     try:
@@ -105,9 +106,11 @@ async def generate(
                 raise ValueError("The model did not return a usable table")
             payload = docs.generate_csv(rows)
     except ImportError as exc:
-        raise HTTPException(status_code=501, detail=f"Generator library not installed: {exc}") from exc
+        raise HTTPException(status_code=501, detail=log_and_mask(exc, endpoint="office/generate", operation="office_generate", fallback="This document generator is not installed on the server.")) from exc
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+        # This ValueError is intentionally raised above when a model failed to return
+        # a usable table; other parser/library detail is hidden by public_message.
+        raise HTTPException(status_code=422, detail=log_and_mask(exc, endpoint="office/generate", operation="office_generate", fallback="The generated content was not a usable table.")) from exc
 
     response = _response(payload, request.format, request.filename or title)
     response.headers["X-AI-Provider"] = provider

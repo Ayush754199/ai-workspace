@@ -8,8 +8,9 @@ package.
 
 from __future__ import annotations
 
-import sys
 import os
+import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -21,9 +22,64 @@ for path in (REPO_ROOT, BACKEND_ROOT):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
+# ---------------------------------------------------------------------------
+# Hermetic environment (set BEFORE the application imports its settings)
+# ---------------------------------------------------------------------------
 # Production has no JWT fallback. Tests supply an explicit disposable secret
 # before importing the FastAPI application.
 os.environ.setdefault("JWT_SECRET", "test-only-jwt-secret-0123456789abcdef")
+
+# Unit tests must never contact a real provider or a real database. Anything that
+# needs a live service installs its own fake; see ``test_outbound_network_guard``.
+for _variable in (
+    "MONGODB_URL",
+    "GEMINI_API_KEY",
+    "GEMINI_API_KEYS",
+    "OPENROUTER_KEY_1",
+    "OPENROUTER_KEY_2",
+    "GROQ_API_KEY_1",
+    "GROQ_API_KEYS",
+    "HF_TOKEN",
+    "HF_API_TOKEN",
+    "HF_TOKENS",
+    "TAVILY_API_KEY_1",
+    "TAVILY_API_KEY_2",
+    "LIVEKIT_URL",
+    "LIVEKIT_API_KEY",
+    "LIVEKIT_API_SECRET",
+    "CLOUDFLARE_ACCOUNT_ID",
+    "CLOUDFLARE_API_TOKEN",
+    "FAL_KEY",
+    "LTX_API_KEY",
+    "POLLINATIONS_API_KEY",
+    "ADMIN_BOOTSTRAP_IDENTIFIER",
+):
+    os.environ.pop(_variable, None)
+
+# The suite runs against an isolated SQLite file so a local/production
+# ``backend_app.db`` is never mutated by a test run. The file is created fresh for
+# every session (and removed afterwards) so rows left by an earlier -- or a
+# partial/failed -- run cannot break an unrelated test (e.g. a leftover
+# ``providers.name`` row violating a UNIQUE constraint, or a fixed test email
+# already registered).
+_SESSION_DB = Path(tempfile.gettempdir()) / f"ai_workspace_phase1_tests_{os.getpid()}.db"
+_SESSION_DB.unlink(missing_ok=True)
+os.environ["DATABASE_URL"] = f"sqlite:///{_SESSION_DB.as_posix()}"
+
+
+def pytest_sessionfinish(session, exitstatus):  # noqa: ARG001 - pytest hook signature
+    """Remove the throw-away database file after the run.
+
+    Best effort: on Windows the SQLAlchemy engine may still hold the file handle,
+    and a cleanup failure must never turn a green run into an error.
+    """
+    try:
+        _SESSION_DB.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+# Attachment bytes go to a throw-away directory, never the repository.
+os.environ.setdefault("ATTACHMENT_STORAGE_DIR", tempfile.mkdtemp(prefix="attach-tests-"))
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -72,7 +128,7 @@ def db_session():
 def reset_ai_quota():
     """Give a test a clean AI quota window.
 
-    The quota ledger is global SQLite state, so a suite that exercises many AI
+    The quota ledger is persistent SQLite state, so a suite that exercises many AI
     calls (or a previous live run) can leave a user at the daily limit and make
     an unrelated test fail with HTTP 429. This fixture clears the counters and
     releases this user's outstanding reservations; it never changes the
@@ -127,10 +183,10 @@ def reset_ai_quota():
 def isolate_mongo(monkeypatch):
     """Disable the module-level Mongo client for every test.
 
-    ``mongo`` is an AsyncIOMotorClient bound to the event loop that existed when
-    ``app.db.session`` was first imported. Starlette's TestClient spins up a fresh
-    loop per test, so any query would fail with "Event loop is closed". Tests are
-    meant to exercise the SQLite path unless they install their own fake.
+    ``mongo`` would be an AsyncIOMotorClient bound to the event loop that existed
+    when ``app.db.session`` was first imported. Starlette's TestClient spins up a
+    fresh loop per test, so any real query would fail with "Event loop is closed".
+    Tests exercise the SQLite path unless they install their own fake.
     """
     from app.db import session as mongo_session
 
@@ -138,3 +194,45 @@ def isolate_mongo(monkeypatch):
     monkeypatch.setattr(mongo_session.mongo, "database", None)
     monkeypatch.setattr(mongo_session.mongo, "users", None)
     monkeypatch.setattr(mongo_session.mongo, "chat_history", None)
+    mongo_session.mongo.reset_ready_cache()
+
+
+@pytest.fixture(autouse=True)
+def test_outbound_network_guard(request, monkeypatch):
+    """Fail a unit test that tries to reach a real external service.
+
+    Tests that genuinely exercise a live dependency opt out with
+    ``@pytest.mark.allow_network``. Blocking here keeps the suite from spending
+    provider quota or depending on the machine's internet access, while still
+    allowing every test that installs its own fake client.
+    """
+    if request.node.get_closest_marker("allow_network"):
+        yield
+        return
+
+    class _Blocked(RuntimeError):
+        pass
+
+    def _blocked(*_args, **_kwargs):
+        raise _Blocked(
+            "Outbound network access during a unit test. Mock the client, or mark "
+            "the test with @pytest.mark.allow_network if it is a true integration test."
+        )
+
+    import requests
+
+    monkeypatch.setattr(requests, "request", _blocked)
+    monkeypatch.setattr(requests, "get", _blocked)
+    monkeypatch.setattr(requests, "post", _blocked)
+    try:
+        import urllib.request as urlrequest
+
+        monkeypatch.setattr(urlrequest, "urlopen", _blocked)
+    except ImportError:  # pragma: no cover
+        pass
+    yield
+
+
+def pytest_configure(config):
+    config.addinivalue_line("markers", "allow_network: test may contact a real external service")
+    config.addinivalue_line("markers", "integration: test needs a live service (MongoDB, provider API)")

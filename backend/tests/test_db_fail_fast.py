@@ -37,10 +37,11 @@ def unreachable_mongo(monkeypatch):
     yield
 
 
-def test_mongo_ping_fails_fast_with_503(unreachable_mongo):
+def test_registration_survives_optional_mongo_outage(unreachable_mongo):
+    # Mongo is a profile mirror; SQL registration succeeds while it is down.
     payload = {
-        "email": "dbfail@example.com",
-        "mobile_number": "+919800000001",
+        "email": f"dbfail-{time.time_ns()}@example.com",
+        "mobile_number": f"+9198{time.time_ns() % 10**8:08d}",
         "password": "StrongPass-2026!",
         "full_name": "DB Fail",
     }
@@ -48,11 +49,20 @@ def test_mongo_ping_fails_fast_with_503(unreachable_mongo):
     with TestClient(app) as client:
         response = client.post("/auth/register", json=payload)
     elapsed = time.monotonic() - started
-    assert response.status_code == 503
-    assert "Database temporarily unavailable" in response.json()["detail"]
-    assert response.headers.get("retry-after") in {"2", "3", "4"}
-    assert 2 <= elapsed <= 8, f"register took {elapsed:.1f}s; must fail fast inside the ping window"
+    assert response.status_code == 200, response.text
+    assert response.json()["email"] == payload["email"]
+    assert 2 <= elapsed <= 8, f"Mongo outage detection took {elapsed:.1f}s; it must fail fast"
     # No connection string or credentials may be echoed.
+    assert "mongodb" not in response.text.lower() or response.json().get("email") == payload["email"]
+    # The SQL row is authoritative and can authenticate while the mirror is down.
+    with TestClient(app) as client:
+        login = client.post("/auth/login", json={"identifier": payload["email"], "password": payload["password"]})
+    assert login.status_code == 200, login.text
+
+def test_unknown_user_login_uses_sql_401_when_mongo_is_unavailable(unreachable_mongo):
+    with TestClient(app) as client:
+        response = client.post("/auth/login", json={"identifier": "not-registered@example.com", "password": "whatever"})
+    assert response.status_code == 401
     assert "mongodb" not in response.text.lower()
 
 
@@ -120,10 +130,22 @@ def test_recovery_after_outage_reopens_immediately():
         mongo_session.mongo.reset_ready_cache()
 
 
-def test_login_reports_503_when_database_is_down(unreachable_mongo):
+def test_existing_sql_user_login_works_when_mongo_is_down(unreachable_mongo):
+    # Mongo is optional; SQL is authoritative.
+    from app.core.database import SessionLocal
+    from app.core.security import hash_password
+    from app.models.user import User
+    email = f"sql-login-{time.time_ns()}@example.com"
+    db = SessionLocal()
+    try:
+        db.add(User(identifier=email, email=email, mobile_number=f"+9197{time.time_ns() % 10**8:08d}", hashed_password=hash_password("StrongPass-2026!"), is_active=True))
+        db.commit()
+    finally:
+        db.close()
     with TestClient(app) as client:
-        response = client.post("/auth/login", json={"identifier": "dbfail@example.com", "password": "whatever"})
-    assert response.status_code == 503
+        response = client.post("/auth/login", json={"identifier": email, "password": "StrongPass-2026!"})
+    assert response.status_code == 200, response.text
+    assert "access_token" in response.json()
 
 
 

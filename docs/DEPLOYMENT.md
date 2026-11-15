@@ -12,7 +12,8 @@
 `backend/.env` is read at startup. Minimum set:
 
 ```dotenv
-JWT_SECRET=<48+ random chars>          # required, backend refuses to start without it
+JWT_SECRET=<48+ random chars>          # required; ENVIRONMENT=production refuses to start without it
+ENVIRONMENT=production                 # development | production (see below)
 ACCESS_TOKEN_EXPIRE_MINUTES=10080      # 7 days
 
 # Free-tier providers only. Numbered keys enable rotation.

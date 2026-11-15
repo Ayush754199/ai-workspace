@@ -141,13 +141,30 @@ def mirror_to_sql(
 @router.post("/signup", response_model=Token)
 async def signup(request: SignupRequest, db: Session = Depends(get_db)):
     identifier = request.identifier.strip()
-    await ensure_mongo_indexes()
-    if get_user_by_identifier(db, identifier) or await mongo_user(identifier):
+    # SQL is authoritative. Authenticate/check the local identity row first so an
+    # optional Mongo mirror outage cannot block registration (and do not pay a
+    # Mongo ping on the common duplicate-identifier path).
+    if get_user_by_identifier(db, identifier):
+        raise HTTPException(status_code=400, detail="Identifier already registered")
+    mongo_record = None
+    try:
+        mongo_record = await mongo_user(identifier)
+    except Exception as exc:  # noqa: BLE001 - SQL registration continues
+        log_connection_failure(
+            exc, endpoint="mongodb://Atlas",
+            payload={"collection": "users", "operation": "signup_lookup"},
+        )
+    if mongo_record:
         raise HTTPException(status_code=400, detail="Identifier already registered")
     password_hash = security.hash_password(request.password)
     created_at = datetime.now(timezone.utc)
     if mongo.enabled:
         try:
+            await ensure_mongo_indexes()
+            # Check for a Mongo-only legacy account only when the mirror is healthy.
+            # Failure is logged, then registration continues to SQL.
+            if await mongo.users.find_one({"$or": [{"identifier": identifier}, {"email": identifier}, {"mobile_number": identifier}]}):
+                raise HTTPException(status_code=400, detail="Identifier already registered")
             await mongo.users.insert_one({
                 "identifier": identifier,
                 "email": identifier if "@" in identifier else None,
@@ -159,37 +176,58 @@ async def signup(request: SignupRequest, db: Session = Depends(get_db)):
                 "is_admin": False,
                 "created_at": created_at,
             })
-        except Exception as exc:
+        except HTTPException:
+            raise
+        except Exception as exc:  # noqa: BLE001 - SQL registration is authoritative
             log_connection_failure(
                 exc,
                 endpoint="mongodb://Atlas",
-                payload={"collection": "users", "operation": "insert_one", "identifier": identifier},
+                payload={"collection": "users", "operation": "insert_one"},
             )
-            raise
+            # Continue with the authoritative SQL row. Mongo is an optional legacy
+            # profile mirror and may be unavailable during registration.
     mirror_to_sql(db, identifier, password_hash, request.full_name.strip(), request.dob, email=identifier if "@" in identifier else None)
     return {"access_token": security.create_access_token(data={"sub": identifier}), "token_type": "bearer"}
 
 
 @router.post("/register", response_model=UserResponse)
 async def register(user_in: UserCreate, db: Session = Depends(get_db)):
-    await mongo.verify_ready()
+    # SQL is authoritative for registration as well as login. Mongo is a best-effort
+    # profile mirror: an Atlas outage must not prevent a fresh SQL identity.
     existing = get_user_by_email(db, user_in.email) or get_user_by_mobile(db, user_in.mobile_number)
     if existing:
         raise HTTPException(status_code=400, detail="Email or mobile number already registered")
     hashed_password = security.hash_password(user_in.password)
-    await ensure_mongo_indexes()
     if mongo.enabled:
+        mirror_ready = False
         try:
+            await mongo.verify_ready()
+            mirror_ready = True
+            await ensure_mongo_indexes()
             if await mongo.users.find_one({"$or": [{"email": user_in.email}, {"mobile_number": user_in.mobile_number}]}):
                 raise HTTPException(status_code=400, detail="Email or mobile number already registered")
-            await mongo.users.insert_one({"identifier": user_in.email, "email": user_in.email, "mobile_number": user_in.mobile_number, "hashed_password": hashed_password, "full_name": user_in.full_name, "dob": user_in.dob, "role": "user", "is_active": True, "is_admin": False, "created_at": datetime.now(timezone.utc)})
-        except Exception as exc:
+        except HTTPException as exc:
+            if exc.status_code == 400:
+                raise
             log_connection_failure(
-                exc,
-                endpoint="mongodb://Atlas",
-                payload={"collection": "users", "operation": "insert_one", "identifier": user_in.email},
+                exc, endpoint="mongodb://Atlas",
+                payload={"collection": "users", "operation": "register_lookup"},
             )
-            raise
+            mirror_ready = False
+        except Exception as exc:  # noqa: BLE001 - optional mirror only
+            log_connection_failure(
+                exc, endpoint="mongodb://Atlas",
+                payload={"collection": "users", "operation": "register_lookup"},
+            )
+            mirror_ready = False
+        if mirror_ready:
+            try:
+                await mongo.users.insert_one({"identifier": user_in.email, "email": user_in.email, "mobile_number": user_in.mobile_number, "hashed_password": hashed_password, "full_name": user_in.full_name, "dob": user_in.dob, "role": "user", "is_active": True, "is_admin": False, "created_at": datetime.now(timezone.utc)})
+            except Exception as exc:  # noqa: BLE001 - SQL remains authoritative
+                log_connection_failure(
+                    exc, endpoint="mongodb://Atlas",
+                    payload={"collection": "users", "operation": "register_insert"},
+                )
     user = UserModel(identifier=user_in.email, email=user_in.email, mobile_number=user_in.mobile_number, hashed_password=hashed_password, full_name=user_in.full_name, dob=user_in.dob, is_admin=False)
     db.add(user)
     db.commit()
@@ -207,22 +245,20 @@ async def login(form_data: LoginRequest, db: Session = Depends(get_db)):
             identifier = normalize_mobile_number(identifier)
         except ValueError:
             pass
-    try:
-        mongo_record = await mongo_user(identifier) if identifier else None
-    except HTTPException:
-        # The database mirror is unreachable: answer 503 instead of pretending the
-        # password was wrong or hanging until the client times out.
-        raise
-    except Exception as exc:
-        # Mongo is only a mirror of profile data: if it is unreachable (timeouts,
-        # outages) SQL still holds a verifiable login record.
-        log_connection_failure(
-            exc,
-            endpoint="mongodb://Atlas",
-            payload={"collection": "users", "operation": "login_fallback", "identifier": identifier},
-        )
-        mongo_record = None
+    # SQL holds the password hash and is authoritative. Avoid a Mongo network round
+    # trip before verifying credentials; the optional mirror is only consulted when
+    # no SQL row exists (legacy users created through the old Mongo-only UI).
     user = get_user_by_identifier(db, identifier) if identifier else None
+    mongo_record = None
+    if user is None and identifier and mongo.enabled:
+        try:
+            mongo_record = await mongo_user(identifier)
+        except Exception as exc:  # noqa: BLE001 - Mongo is an optional mirror
+            log_connection_failure(
+                exc,
+                endpoint="mongodb://Atlas",
+                payload={"collection": "users", "operation": "login_fallback"},
+            )
     stored_hash = mongo_record.get("hashed_password") if mongo_record else (user.hashed_password if user else None)
 
     def _authorization_row(current):
@@ -232,17 +268,16 @@ async def login(form_data: LoginRequest, db: Session = Depends(get_db)):
         back from the Mongo profile on every sign-in, which silently undid an
         admin promotion or revocation made in SQL. Only create a missing row; keep
         the existing authorization columns untouched.
+
+        Administrator rights are NEVER granted by this function. There used to be a
+        hard-coded identifier here that promoted (and on first login even created)
+        an administrator with no environment configuration, so anybody who knew the
+        number could take over a deployment. Promotion is now an explicit,
+        environment-controlled operation performed once at startup by
+        ``app.lifespan.provision_configured_admin`` (ADMIN_BOOTSTRAP_IDENTIFIER).
+        Existing admins keep their flag; new accounts are always plain users.
         """
-        # The configured Render bootstrap variable is preferred. The supplied
-        # production administrator is retained as a migration fallback because
-        # the free service can recreate its SQLite mirror before login.
-        bootstrap_identifier = settings.ADMIN_BOOTSTRAP_IDENTIFIER.strip() or "7541996529"
         if current is not None:
-            if bootstrap_identifier and identifier == bootstrap_identifier and not current.is_admin:
-                current.is_admin = True
-                current.role = "admin"
-                db.commit()
-                db.refresh(current)
             return current
         is_mongo_account = mongo_record is not None
         row = UserModel(
@@ -260,11 +295,6 @@ async def login(form_data: LoginRequest, db: Session = Depends(get_db)):
         db.add(row)
         db.commit()
         db.refresh(row)
-        if bootstrap_identifier and identifier == bootstrap_identifier:
-            row.is_admin = True
-            row.role = "admin"
-            db.commit()
-            db.refresh(row)
         return row
 
     if not stored_hash or not security.verify_password(form_data.password, stored_hash):
@@ -292,12 +322,15 @@ async def me(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db))
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
-        payload = security.jwt.decode(token, security.JWT_SECRET, algorithms=[security.ALGORITHM])
+        payload = security.decode_access_token(token)
         identifier: str = payload.get("sub")
         if identifier is None:
             raise credentials_exception
     except Exception:
         raise credentials_exception
+    # SQL is the identity/authorization source of truth here. MongoDB only mirrors
+    # legacy profile data, so an outage must not turn a valid session into a 401 or
+    # a 500. A row absent from SQL means the account was never provisioned.
     user = get_user_by_identifier(db, identifier)
     if user is None or not user.is_active:
         raise credentials_exception

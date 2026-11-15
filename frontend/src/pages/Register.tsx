@@ -26,6 +26,7 @@ const Register: React.FC = () => {
 
   return (
     <div className="auth-page">
+      <div className="auth-animation" aria-hidden="true"><i /><i /><i /><span /></div>
       <div className="auth-glow auth-glow-one" /><div className="auth-glow auth-glow-two" />
       <div className="auth-card">
         <div className="auth-brand"><span>✦</span><div><strong>AI Workspace</strong><small>Secure creative workspace</small></div></div>

@@ -13,18 +13,64 @@ class AppTheme {
   static ThemeData dark() => ThemeData(
         brightness: Brightness.dark,
         scaffoldBackgroundColor: obsidian,
-        colorScheme: const ColorScheme.dark(primary: violet, secondary: cyan, surface: onyx),
-        textTheme: GoogleFonts.plusJakartaSansTextTheme(ThemeData.dark().textTheme).apply(bodyColor: ice, displayColor: ice),
+        colorScheme: const ColorScheme.dark(
+          primary: violet,
+          secondary: cyan,
+          surface: onyx,
+        ),
+        textTheme:
+            GoogleFonts.plusJakartaSansTextTheme(ThemeData.dark().textTheme)
+                .apply(bodyColor: ice, displayColor: ice),
         inputDecorationTheme: InputDecorationTheme(
           filled: true,
           fillColor: onyx,
           hintStyle: TextStyle(color: ice.withOpacity(.42)),
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: border)),
-          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: border)),
-          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: cyan)),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: const BorderSide(color: border),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: const BorderSide(color: border),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: const BorderSide(color: cyan),
+          ),
         ),
-        appBarTheme: const AppBarTheme(backgroundColor: obsidian, elevation: 0, surfaceTintColor: Colors.transparent),
+        appBarTheme: const AppBarTheme(
+          backgroundColor: obsidian,
+          elevation: 0,
+          surfaceTintColor: Colors.transparent,
+        ),
         dividerColor: border,
+        useMaterial3: true,
+      );
+
+  static ThemeData light() => ThemeData(
+        brightness: Brightness.light,
+        scaffoldBackgroundColor: const Color(0xfff8fafc),
+        colorScheme: const ColorScheme.light(
+          primary: indigo,
+          secondary: cyan,
+          surface: Colors.white,
+        ),
+        textTheme: GoogleFonts.plusJakartaSansTextTheme(
+          ThemeData.light().textTheme,
+        ),
+        inputDecorationTheme: InputDecorationTheme(
+          filled: true,
+          fillColor: Colors.white,
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: const BorderSide(color: Color(0xffe2e8f0)),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: const BorderSide(color: indigo),
+          ),
+        ),
         useMaterial3: true,
       );
 }

@@ -1,0 +1,89 @@
+........................................................................ [ 28%]
+........................................................................ [ 57%]
+....................................F...............F................... [ 86%]
+...................................                                      [100%]
+================================== FAILURES ===================================
+________________ test_rate_limit_429_is_retryable_not_a_crash _________________
+
+fake_openrouter = (<test_provider_contract_mock._State object at 0x000002C6C2846720>, 'http://127.0.0.1:54251/v1')
+
+    def test_rate_limit_429_is_retryable_not_a_crash(fake_openrouter):
+        state, base = fake_openrouter
+        state.mode = "429"
+        with pytest.raises(GatewayProviderError) as raised:
+            _provider(base).generate("hello")
+>       assert raised.value.status_code == 429
+E       AssertionError: assert None == 429
+E        +  where None = GatewayProviderError('OpenRouter connection failed').status_code
+E        +    where GatewayProviderError('OpenRouter connection failed') = <ExceptionInfo GatewayProviderError('OpenRouter connection failed') tblen=2>.value
+
+backend\tests\test_provider_contract_mock.py:146: AssertionError
+_________________ test_old_day_reserved_rows_become_uncertain _________________
+
+db_session = <sqlalchemy.orm.session.Session object at 0x000002C6C325E840>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000002C6C2954740>
+
+    def test_old_day_reserved_rows_become_uncertain(db_session, monkeypatch):
+        from app.models.gateway import QuotaReservation
+    
+        # Drive the production policy (Asia/Kolkata) across its own midnight.
+        clock = _clock(monkeypatch, datetime(2026, 11, 4, 23, 50, tzinfo=IST))
+        user = _user(db_session)
+        pending = _reserve(db_session, user)
+        # The DB default is the real wall clock, so stamp the row into the frozen day.
+        db_session.query(QuotaReservation).filter_by(reservation_id=pending.reservation_id).update(
+            {"created_at": datetime(2026, 11, 4, 23, 50, tzinfo=timezone.utc).replace(tzinfo=None)}
+        )
+        db_session.commit()
+        clock["now"] = datetime(2026, 11, 5, 0, 10, tzinfo=IST)
+        _reserve(db_session, user)
+    
+        stored = db_session.query(QuotaReservation).filter_by(reservation_id=pending.reservation_id).one()
+>       assert stored.state == "UNKNOWN"
+E       AssertionError: assert 'RESERVED' == 'UNKNOWN'
+E         
+E         - UNKNOWN
+E         + RESERVED
+
+backend\tests\test_quota_day_rollover.py:151: AssertionError
+============================== warnings summary ===============================
+backend\app\core\database.py:21
+  C:\Users\aadiu\OneDrive\Desktop\AI Workspace v1.0\backend\app\core\database.py:21: MovedIn20Warning: The ``declarative_base()`` function is now available as sqlalchemy.orm.declarative_base(). (deprecated since: 2.0) (Background on SQLAlchemy 2.0 at: https://sqlalche.me/e/b8d9)
+    Base = declarative_base()
+
+backend\app\schemas\user.py:18
+  C:\Users\aadiu\OneDrive\Desktop\AI Workspace v1.0\backend\app\schemas\user.py:18: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.14/migration/
+    class UserResponse(BaseModel):
+
+backend\app\main.py:165
+  C:\Users\aadiu\OneDrive\Desktop\AI Workspace v1.0\backend\app\main.py:165: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    @app.on_event("startup")
+
+.venv\Lib\site-packages\fastapi\applications.py:4723
+  C:\Users\aadiu\OneDrive\Desktop\AI Workspace v1.0\.venv\Lib\site-packages\fastapi\applications.py:4723: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    return self.router.on_event(event_type)  # ty: ignore[deprecated]
+
+tests/test_adm10_no_provider.py::test_models_endpoint_reports_no_provider_clearly
+  C:\Users\aadiu\OneDrive\Desktop\AI Workspace v1.0\.venv\Lib\site-packages\passlib\handlers\argon2.py:716: DeprecationWarning: Accessing argon2.__version__ is deprecated and will be removed in a future release. Use importlib.metadata directly to query for argon2-cffi's packaging metadata.
+    _argon2_cffi.__version__, max_version)
+
+tests/test_edge_image_validation.py::test_image_bomb_rejected_before_storage
+tests/test_edge_image_validation.py::test_huge_dimension_image_is_rejected_as_bomb
+  C:\Users\aadiu\OneDrive\Desktop\AI Workspace v1.0\.venv\Lib\site-packages\PIL\Image.py:3452: DecompressionBombWarning: Image size (100000000 pixels) exceeds limit of 89478485 pixels, could be decompression bomb DOS attack.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED backend\tests\test_provider_contract_mock.py::test_rate_limit_429_is_retryable_not_a_crash
+FAILED backend\tests\test_quota_day_rollover.py::test_old_day_reserved_rows_become_uncertain
+2 failed, 249 passed, 7 warnings in 141.31s (0:02:21)

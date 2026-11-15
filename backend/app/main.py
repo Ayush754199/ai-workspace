@@ -4,7 +4,9 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../")))
 
-from fastapi import FastAPI, HTTPException
+import uuid
+
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from app.api.v1.endpoints.health import router as health_router
@@ -25,15 +27,18 @@ from app.core.rate_limit import SecurityMiddleware
 from sqlalchemy import inspect, text
 from app.core.database import Base, engine
 from app.core.config import settings
-from app.db.session import mongo
 from contextlib import asynccontextmanager
+from app import lifespan as app_lifespan
+
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+	"""Run every startup hook exactly once, in a defined order (app/lifespan.py)."""
+	await app_lifespan.on_startup()
 	try:
 		yield
 	finally:
-		await mongo.close()
+		await app_lifespan.on_shutdown()
 
 app = FastAPI(
 	title="Enterprise AI Workspace Backend",
@@ -42,6 +47,35 @@ app = FastAPI(
 	openapi_url="/openapi.json" if settings.API_DOCS_ENABLED else None,
 	lifespan=lifespan,
 )
+
+def _install_exception_handlers(application: FastAPI) -> None:
+	"""Never answer with a raw internal error string.
+
+	An unhandled exception used to be rendered by Starlette with its message in the
+	response (and a traceback in the log without a correlation id). The diagnostic
+	now goes to the redacting structured logger and the client gets a generic
+	message plus the request id it can quote to support.
+	"""
+	from app.core.errors import log_and_mask
+
+	@application.exception_handler(Exception)
+	async def _unhandled(request: Request, exc: Exception):
+		from starlette.responses import JSONResponse
+
+		request_id = request.headers.get("x-request-id") or uuid.uuid4().hex[:16]
+		message = log_and_mask(
+			exc,
+			endpoint=str(request.url.path),
+			operation="unhandled_exception",
+		)
+		return JSONResponse(
+			{"detail": message, "request_id": request_id},
+			status_code=500,
+			headers={"X-Request-Id": request_id},
+		)
+
+
+_install_exception_handlers(app)
 
 app.include_router(health_router, prefix="/api/v1", tags=["health"])
 app.include_router(auth_router, tags=["auth"])
@@ -247,31 +281,9 @@ def ensure_schema():
 	if "mention_user_ids" not in message_columns and "messages" in inspector.get_table_names():
 		with engine.begin() as connection:
 			connection.execute(text("ALTER TABLE messages ADD COLUMN mention_user_ids JSON NOT NULL DEFAULT '[]'"))
-	bootstrap_identifier = settings.ADMIN_BOOTSTRAP_IDENTIFIER.strip()
-	if bootstrap_identifier and "users" in inspector.get_table_names():
-		with engine.begin() as connection:
-			connection.execute(
-				text(
-					"UPDATE users SET is_admin = TRUE, role = 'admin' "
-					"WHERE mobile_number = :identifier OR identifier = :identifier OR email = :identifier"
-				),
-				{"identifier": bootstrap_identifier},
-			)
+	# Administrator provisioning is NOT done here: it is an explicit startup step
+	# (app.lifespan.provision_admin) so that merely importing the module -- which
+	# tests and scripts do constantly -- cannot change authorization.
 
 
 ensure_schema()
-
-
-@app.on_event("startup")
-async def ensure_user_admin_column():
-    """Re-run schema compatibility and recover interrupted media jobs."""
-    ensure_schema()
-    from app.api.v1.endpoints.video import recover_interrupted_jobs
-    recover_interrupted_jobs()
-    if settings.CALL_DATA_RESET_ON_STARTUP:
-        from app.services.call_service import purge_call_data
-        deleted = await purge_call_data()
-        print(f"Call data reset completed: {deleted}")
-
-# Protected route example - all endpoints will depend on get_current_user
-# This can be applied globally or per-endpoint

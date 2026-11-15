@@ -16,7 +16,7 @@ from app.core.database import get_db
 from app.db.session import mongo
 from app.models.user import User
 from app.services.call_service import (
-    call_hub, cleanup_stale_calls, create_join_token, ensure_call_indexes, expire_stale_calls, get_call, public_call, purge_call_data, require_livekit,
+    call_hub, cleanup_stale_calls, create_join_token, expire_stale_calls, get_call, public_call, require_livekit,
     transition, utcnow, write_event,
 )
 
@@ -53,14 +53,11 @@ async def _notify(call: dict[str, Any], event: str) -> None:
     await call_hub.send(call.get("participant_ids", []), {"type": event, "call": public_call(call)})
 
 
-@router.on_event("startup")
-async def _startup() -> None:
-    await ensure_call_indexes()
-    if settings.CALL_DATA_RESET_ON_STARTUP:
-        deleted = await purge_call_data()
-        # Keep the count visible in Render deploy logs so the one-time reset
-        # can be verified without exposing any document contents.
-        print(f"Call data reset completed: {deleted}")
+# Startup work (indexes, optional call-data reset) lives in app/lifespan.py.
+# A router-level "startup" event runs on the Application's router and, because the
+# Motor client is bound to the loop it was constructed on, it raised
+# "RuntimeError: Event loop is closed" for every new event loop (all TestClients
+# after the first, and any ASGI server that restarts the loop).
 
 
 @router.post("")
