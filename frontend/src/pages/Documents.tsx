@@ -3,6 +3,7 @@ import AppShell from "../components/AppShell";
 import { useAuth } from "../contexts/AuthContext";
 import { DocumentResult, documentsApi, downloadBlob } from "../api/workspaceApi";
 import renderMarkdown from "../components/Markdown";
+import FeatureGate from "../components/FeatureGate";
 
 const STYLES = [
   { id: "summary", label: "Summary" },
@@ -11,7 +12,7 @@ const STYLES = [
   { id: "key_facts", label: "Key facts" },
 ];
 
-const Documents: React.FC = () => {
+const DocumentsPage: React.FC = () => {
   const { token } = useAuth();
   const [file, setFile] = useState<File | null>(null);
   const [extracted, setExtracted] = useState<DocumentResult | null>(null);
@@ -229,5 +230,11 @@ const Documents: React.FC = () => {
     </AppShell>
   );
 };
+
+const Documents: React.FC = () => (
+  <FeatureGate feature="documents">
+    <DocumentsPage />
+  </FeatureGate>
+);
 
 export default Documents;

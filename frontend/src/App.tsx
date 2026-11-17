@@ -8,6 +8,8 @@ import Documents from "./pages/Documents";
 import ImageWorkspace from "./pages/ImageWorkspace";
 import Office from "./pages/Office";
 import Research from "./pages/Research";
+import VideoStudio from "./pages/AiVideoStudio";
+import VideoStudioEditor from "./pages/VideoStudioEditor";
 import { AuthProvider } from "./contexts/AuthContext";
 import AdminDashboard from "./pages/AdminDashboard";
 import Profile from "./pages/Profile";
@@ -47,6 +49,11 @@ const App: React.FC = () => {
           <Route path="/images" element={<ProtectedRoute><ImageWorkspace /></ProtectedRoute>} />
           <Route path="/office" element={<ProtectedRoute><Office /></ProtectedRoute>} />
           <Route path="/research" element={<ProtectedRoute><Research /></ProtectedRoute>} />
+          {/* AiVideoStudio links to /video-studio/editor and the editor links back, so
+              both paths must exist -- without them the whole Video feature was a
+              blank page and AiVideoStudio was unreachable from the UI. */}
+          <Route path="/video-studio" element={<ProtectedRoute><VideoStudio /></ProtectedRoute>} />
+          <Route path="/video-studio/editor" element={<ProtectedRoute><VideoStudioEditor /></ProtectedRoute>} />
           <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
           <Route path="/admin" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
         </Routes></CallProvider>

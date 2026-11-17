@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import AppShell from "../components/AppShell";
 import { useAuth } from "../contexts/AuthContext";
 import { apiBaseUrl, readErrorDetail } from "../api/client";
+import FeatureGate from "../components/FeatureGate";
 
 type Mode = "text" | "image";
 
@@ -38,7 +39,7 @@ function outputUrl(output: unknown): string | null {
   return null;
 }
 
-const AiVideoStudio: React.FC = () => {
+const AiVideoStudioPage: React.FC = () => {
   const { token } = useAuth();
   const [mode, setMode] = useState<Mode>("text");
   const [prompt, setPrompt] = useState("");
@@ -269,5 +270,11 @@ const AiVideoStudio: React.FC = () => {
     </AppShell>
   );
 };
+
+const AiVideoStudio: React.FC = () => (
+  <FeatureGate feature="video_generation">
+    <AiVideoStudioPage />
+  </FeatureGate>
+);
 
 export default AiVideoStudio;

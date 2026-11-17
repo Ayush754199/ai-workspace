@@ -60,6 +60,13 @@ html, body, #root { min-width: 0; max-width: 100%; overflow-x: hidden; }
 /* Global features/history control. It is rendered by the app shell and the
    standalone chat workspace, so it remains available on every workspace page. */
 .workspace-feature-menu-root { position: fixed; z-index: 100; top: 14px; right: 20px; }
+/* Full-screen editors own their whole top bar. A fixed, floating "Features" pill
+   sat on top of the video editor's color/zoom controls and clipped them, so on
+   that route the trigger is docked into the flow above the toolbar instead. */
+.workspace-shell:has(.vd-app) .workspace-feature-menu-root { position: static; z-index: auto; top: auto; right: auto; display: flex; justify-content: flex-end; padding: 4px 8px; }
+.workspace-shell:has(.vd-app) .workspace-feature-trigger { padding: 4px 9px; font-size: 11px; box-shadow: none; }
+/* The dock adds a row above a 100vh editor, which would make the page scroll. */
+.workspace-shell:has(.vd-app) .vd-app { min-height: calc(100vh - 30px); }
 .workspace-feature-trigger { display: inline-flex; align-items: center; gap: 7px; padding: 8px 12px; border: 1px solid #6d43c9; border-radius: 8px; color: #eee8ff; background: #1c1630f5; box-shadow: 0 8px 26px #0005; font-size: 12px; font-weight: 700; cursor: pointer; }
 .workspace-feature-trigger:hover, .workspace-feature-trigger[aria-expanded="true"] { border-color: #a78bfa; background: #2a1e49; }
 .workspace-feature-trigger > span:first-child { font-size: 16px; line-height: 1; }
@@ -109,6 +116,7 @@ html, body, #root { min-width: 0; max-width: 100%; overflow-x: hidden; }
   .workspace-shell.mobile-nav-open .workspace-main { width: 100vw; max-width: 100vw; }
   .workspace-main { width: 100vw; max-width: 100vw; }
   .workspace-main > .chat-workspace, .workspace-main > .page-frame, .workspace-main > .video-studio-page { padding-top: 58px; }
+  .workspace-shell:has(.vd-app) .workspace-feature-menu-root { padding: 3px 6px; }
   .workspace-feature-menu-root { top: 10px; right: 10px; }
   .workspace-feature-trigger { padding: 7px 9px; font-size: 10.5px; }
   .workspace-feature-panel { top: 40px; right: 0; }
@@ -904,3 +912,12 @@ html, body, #root { min-width: 0; max-width: 100%; overflow-x: hidden; }
 @keyframes welcome-float { 0%,100%{transform:translateY(4px) scale(.95);opacity:.65}50%{transform:translateY(-10px) scale(1.08);opacity:1} }
 .call-error-banner{position:fixed;z-index:1001;left:50%;top:18px;transform:translateX(-50%);display:flex;align-items:center;gap:12px;max-width:min(560px,calc(100vw - 28px));padding:12px 14px;border:1px solid #a83c55;border-radius:12px;background:#2a1420;color:#ffdfe6;font-size:13px;box-shadow:0 14px 40px #0008}.call-error-banner span{flex:1;min-width:0}.call-error-banner button{border:0;background:transparent;color:#ffb3c1;font-size:15px;line-height:1;cursor:pointer;padding:2px 4px}
 .call-launcher button:disabled{opacity:.45;cursor:not-allowed}
+
+/* Admin-disabled feature state (FeatureGate). The page used to render fully and
+   then fail with 503 on every action; this replaces it with an explicit state. */
+.feature-disabled { display: flex; gap: 16px; align-items: flex-start; max-width: 760px; padding: 26px 28px; border: 1px solid #4a3a24; border-radius: 12px; background: #1a1610; color: #f0e3cd; }
+.feature-disabled > span { display: grid; place-items: center; flex: 0 0 auto; width: 40px; height: 40px; border-radius: 50%; background: #2b2216; color: #ffcc7a; font-size: 18px; }
+.feature-disabled strong { display: block; margin-bottom: 6px; color: #ffe6b8; font-size: 15px; }
+.feature-disabled p { margin: 0; color: #bda98c; font-size: 13px; line-height: 1.55; }
+.shell-nav-item.shell-nav-disabled { color: #6d7488 !important; }
+.shell-nav-badge { margin-left: auto; padding: 1px 6px; border: 1px solid #3a3f52; border-radius: 999px; color: #8b90a3; font-size: 9px; letter-spacing: .04em; text-transform: uppercase; }

@@ -1,8 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
-import { Attachment, ChatMessage, Conversation, GeneratedChatFile, chatV2 } from "../api/workspaceApi";
-import { imageApi } from "../api/workspaceApi";
+import { Attachment, ChatMessage, Conversation, GeneratedChatFile, chatV2, fetchAttachmentBlob, imageApi } from "../api/workspaceApi";
 import renderMarkdown from "../components/Markdown";
 import VoiceControls from "../components/VoiceControls";
 import ChatNavigationDrawer from "../components/ChatNavigationDrawer";
@@ -256,6 +255,9 @@ const ChatWorkspace: React.FC = () => {
         const preview = file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined;
         attachmentFiles.current.set(uploaded.id, file);
         setAttachments((current) => [...current, preview ? { ...uploaded, preview } : uploaded]);
+        // A 200 with stored:false means the text was read but the file itself was
+        // not saved -- say it out loud instead of letting the download 404 later.
+        if (uploaded.stored === false) setError(`${file.name}: ${uploaded.warning || "The file itself could not be saved."}`);
       } catch (err: any) {
         const message = err?.message || "Upload failed";
         setError(`${file.name}: ${message}`);
@@ -443,7 +445,26 @@ const ChatWorkspace: React.FC = () => {
     textareaRef.current?.focus();
   };
 
-  const downloadGeneratedFile = (file: GeneratedChatFile) => {
+  const downloadGeneratedFile = useCallback(async (file: GeneratedChatFile) => {
+    // Prefer the server download endpoint: it answers with Content-Disposition:
+    // attachment, which iOS Safari and Android Chrome honour reliably, unlike a
+    // client-side blob + `download` attribute (ignored on iOS).
+    if (token && file.attachment_id) {
+      try {
+        const blob = await fetchAttachmentBlob(token, file.attachment_id);
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = file.filename;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        window.setTimeout(() => URL.revokeObjectURL(url), 4000);
+        return;
+      } catch {
+        // Fall back to the embedded bytes below.
+      }
+    }
     const url = URL.createObjectURL(fileBlob(file));
     const anchor = document.createElement("a");
     anchor.href = url;
@@ -452,7 +473,7 @@ const ChatWorkspace: React.FC = () => {
     anchor.click();
     anchor.remove();
     window.setTimeout(() => URL.revokeObjectURL(url), 4000);
-  };
+  }, [token]);
 
   const copyArtifact = async (content: string) => {
     try {

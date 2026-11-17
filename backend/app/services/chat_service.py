@@ -125,6 +125,23 @@ def _db_models(db: Session) -> tuple[ModelSpec, ...]:
     return AIGateway().registry_for(db)
 
 
+_PROVIDER_LABELS = {
+    "huggingface": "Hugging Face",
+    "gemini": "Gemini",
+    "groq": "Groq",
+    "openrouter": "OpenRouter",
+    "cloudflare": "Cloudflare",
+    "muse_spark": "Muse Spark",
+    "muse_image": "Muse Image",
+}
+
+
+def _provider_label(provider: str) -> str:
+    """Human label for a provider id (``huggingface`` -> "Hugging Face")."""
+    key = str(provider or "").strip().casefold().replace(" ", "")
+    return _PROVIDER_LABELS.get(key, str(provider or "").replace("_", " ").strip().title())
+
+
 def available_models(db: Session, capability: str = "chat") -> list[dict]:
     """Return selectable models plus disabled ones with the reason they are off.
 
@@ -150,6 +167,10 @@ def available_models(db: Session, capability: str = "chat") -> list[dict]:
     for spec in _db_models(db):
         if spec.provider == "mock" or capability not in spec.capabilities:
             continue
+        # A model row without a model id (e.g. "groq:", shown as "Groq · ") is not
+        # an option a user can pick -- it only produced broken labels in the picker.
+        if not str(spec.model or "").strip():
+            continue
         selectable = (spec.provider, spec.model) in live
         reason = None
         if not selectable:
@@ -167,7 +188,7 @@ def available_models(db: Session, capability: str = "chat") -> list[dict]:
         options.append(
             ModelOption(
                 f"{spec.provider}:{spec.model}",
-                f"{spec.provider.title()} · {spec.model}",
+                f"{_provider_label(spec.provider)} · {spec.model}",
                 spec.provider,
                 tuple(sorted(spec.capabilities)),
                 spec.free,

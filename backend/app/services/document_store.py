@@ -53,7 +53,7 @@ def save_bytes(user_id: int, filename: str, data: bytes) -> str:
         except BaseException:
             Path(temp_path).unlink(missing_ok=True)
             raise
-    return str(target.relative_to(storage_root()))
+    return str(target.relative_to(storage_root().resolve()))
 
 
 def load_bytes(path: str | None) -> bytes | None:

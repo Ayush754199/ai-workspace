@@ -14,11 +14,21 @@ const Login: React.FC = () => {
     if (loading) return;
     setLoading(true);
     setError("");
+    // A sleeping/cold Render instance can hold the request open for a long time.
+    // Without this the button stays on "Signing in..." forever with no message.
+    const timeout = window.setTimeout(() => {
+      setLoading(false);
+      setError("The server is taking too long to respond. It may be starting up — please try again in a moment.");
+    }, 30_000);
+    let finished = false;
     try {
       await login(identifier, password);
+      finished = true;
     } catch (err: any) {
-      setError(err?.message || "Login failed");
-      setLoading(false);
+      if (!finished) setError(err?.message || "Login failed");
+    } finally {
+      window.clearTimeout(timeout);
+      if (!finished) setLoading(false);
     }
   };
 

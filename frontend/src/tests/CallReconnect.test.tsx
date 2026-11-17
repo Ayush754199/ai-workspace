@@ -1,13 +1,42 @@
 import React from "react";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, act } from "@testing-library/react";
-import { CallProvider } from "../calls/CallProvider";
+import { fireEvent, render, screen, act } from "@testing-library/react";
+import { CallProvider, useCalls } from "../calls/CallProvider";
 import { describeCallError } from "../calls/callErrors";
 
-vi.mock("livekit-client", () => ({ Room: class { connect = vi.fn(); disconnect = vi.fn(); } }));
+const callMocks = vi.hoisted(() => ({
+  connect: vi.fn(),
+  disconnect: vi.fn(),
+  setMicrophoneEnabled: vi.fn(),
+  setCameraEnabled: vi.fn(),
+  accept: vi.fn(),
+  join: vi.fn(),
+  websocketUrl: vi.fn(() => "ws://localhost/api/v1/calls/ws"),
+}));
+vi.mock("livekit-client", () => ({
+  Room: class {
+    connect = callMocks.connect;
+    disconnect = callMocks.disconnect;
+    localParticipant = {
+      setMicrophoneEnabled: callMocks.setMicrophoneEnabled,
+      setCameraEnabled: callMocks.setCameraEnabled,
+    };
+  },
+}));
 vi.mock("@livekit/components-react", () => ({ ControlBar: () => null, ParticipantTile: () => null, RoomAudioRenderer: () => null, RoomContext: ({ children }: { children: React.ReactNode }) => <>{children}</>, useTracks: () => [] }));
 vi.mock("@livekit/components-styles", () => ({}));
 vi.mock("../contexts/AuthContext", () => ({ useAuth: () => ({ token: "jwt-token", user: { id: 1 } }) }));
+vi.mock("../calls/callsApi", () => ({
+  callsApi: {
+    accept: callMocks.accept,
+    join: callMocks.join,
+    websocketUrl: callMocks.websocketUrl,
+  },
+}));
+vi.mock("../calls/LiveKitCallRoom", () => ({
+  default: ({ call }: { call: { call_id: string } }) =>
+    React.createElement("div", { "data-testid": "active-call-room" }, call.call_id),
+}));
 
 class FakeSocket {
   static instances: FakeSocket[] = [];
@@ -117,5 +146,55 @@ describe("describeCallError", () => {
 
   it("falls back to a plain message for unknown errors", () => {
     expect(describeCallError(new Error("Traceback (most recent call last)"), "Could not start the call")).toBe("Could not start the call");
+  });
+});
+
+describe("CallProvider media permission fallback", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    callMocks.connect.mockResolvedValue(undefined);
+    callMocks.setMicrophoneEnabled.mockRejectedValue(
+      Object.assign(new Error("Permission denied"), { name: "NotAllowedError" }),
+    );
+    vi.stubGlobal("WebSocket", FakeSocket as unknown as typeof WebSocket);
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("keeps a connected call visible when microphone permission is denied", async () => {
+    const call = {
+      call_id: "c1",
+      room_name: "r1",
+      initiated_by: 2,
+      participant_ids: [1, 2],
+      call_type: "audio" as const,
+      status: "accepted" as const,
+      missed: false,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z",
+    };
+    callMocks.accept.mockResolvedValue(call);
+    callMocks.join.mockResolvedValue({
+      call,
+      server_url: "wss://calls.example.test",
+      participant_token: "participant-token",
+    });
+
+    const Actions = () => {
+      const { acceptCall } = useCalls();
+      return <button onClick={() => void acceptCall(call)}>Accept call</button>;
+    };
+    render(
+      <CallProvider>
+        <Actions />
+      </CallProvider>,
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Accept call" }));
+    });
+
+    expect(await screen.findByTestId("active-call-room")).toHaveTextContent("c1");
+    expect(screen.getByRole("alert")).toHaveTextContent(/allow access/i);
+    expect(callMocks.disconnect).not.toHaveBeenCalled();
   });
 });

@@ -2,13 +2,14 @@ import React, { useRef, useState } from "react";
 import AppShell from "../components/AppShell";
 import { useAuth } from "../contexts/AuthContext";
 import { downloadBlob, imageApi } from "../api/workspaceApi";
+import FeatureGate from "../components/FeatureGate";
 
 /**
  * Image AI: generate (text or image-to-image through /chat/image), understand,
  * remove background, enhance and prompt variations. Every action reports the
  * real backend error when a provider is missing.
  */
-const ImageWorkspace: React.FC = () => {
+const ImageWorkspacePage: React.FC = () => {
   const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
   const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "webp"]);
   const { token } = useAuth();
@@ -190,5 +191,11 @@ const ImageWorkspace: React.FC = () => {
     </AppShell>
   );
 };
+
+const ImageWorkspace: React.FC = () => (
+  <FeatureGate feature="images">
+    <ImageWorkspacePage />
+  </FeatureGate>
+);
 
 export default ImageWorkspace;

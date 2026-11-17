@@ -72,3 +72,40 @@ def test_purge_call_data_only_targets_call_collections(monkeypatch):
     assert asyncio.run(call_service.purge_call_data()) == {
         "calls": 3, "call_events": 3, "call_messages": 3,
     }
+
+
+def test_stale_sweeper_runs_without_any_client_traffic(monkeypatch):
+    """Abandoned calls must expire even if nobody opens history/busy again."""
+    mongo = type("MongoStub", (), {"enabled": True, "calls": AsyncMock()})()
+    monkeypatch.setattr(call_service, "mongo", mongo)
+    ticks = {"count": 0}
+
+    async def fake_sleep(_delay):
+        ticks["count"] += 1
+        if ticks["count"] >= 2:
+            raise asyncio.CancelledError
+
+    monkeypatch.setattr(call_service.asyncio, "sleep", fake_sleep)
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(call_service.sweep_stale_calls_forever(interval_seconds=1))
+    # Two ticks, each closing ringing + accepted/active records.
+    assert mongo.calls.update_many.await_count == 4
+
+
+def test_stale_sweeper_survives_a_failing_tick(monkeypatch):
+    """One Mongo hiccup must not stop the maintenance loop."""
+    mongo = type("MongoStub", (), {"enabled": True, "calls": AsyncMock()})()
+    mongo.calls.update_many.side_effect = [RuntimeError("mongo down"), AsyncMock(), AsyncMock()]
+    monkeypatch.setattr(call_service, "mongo", mongo)
+    ticks = {"count": 0}
+
+    async def fake_sleep(_delay):
+        ticks["count"] += 1
+        if ticks["count"] >= 2:
+            raise asyncio.CancelledError
+
+    monkeypatch.setattr(call_service.asyncio, "sleep", fake_sleep)
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(call_service.sweep_stale_calls_forever(interval_seconds=1))
+    # The failing tick stopped before its second update, then the loop recovered.
+    assert mongo.calls.update_many.await_count == 3

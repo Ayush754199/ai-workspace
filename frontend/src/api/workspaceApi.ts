@@ -18,6 +18,9 @@ export type Attachment = {
   size_bytes?: number;
   has_text?: boolean;
   preview?: string;
+  // False when the text was extracted but the file bytes could not be stored.
+  stored?: boolean;
+  warning?: string | null;
 };
 
 export type ChatMessage = {
@@ -96,6 +99,7 @@ async function request<T>(token: string, path: string, init: RequestInit = {}): 
 
 export const chatV2 = {
   models: (token: string) => request<{ models: ChatModel[] }>(token, "/chat/v2/models"),
+  features: (token: string) => request<{ features: Record<string, boolean> }>(token, "/chat/v2/features"),
   conversations: (token: string, includeArchived = false) =>
     request<Conversation[]>(token, `/chat/v2/conversations?include_archived=${includeArchived}`),
   createConversation: (token: string, title = "New chat", mode = "chat") =>
@@ -355,4 +359,21 @@ export async function downloadBlob(blob: Blob, filename: string) {
   anchor.click();
   anchor.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+/**
+ * Fetches a stored attachment's bytes from the download endpoint.
+ * The server answers with `Content-Disposition: attachment`, which iOS Safari
+ * and Android Chrome honour far more reliably than a client-side blob +
+ * `download` attribute.
+ */
+export async function fetchAttachmentBlob(token: string, attachmentId: number): Promise<Blob> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/chat/v2/attachments/${attachmentId}/download`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(readErrorDetail((data as { detail?: unknown }).detail, `Download failed (${response.status})`));
+  }
+  return response.blob();
 }

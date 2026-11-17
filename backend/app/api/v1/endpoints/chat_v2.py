@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -145,6 +146,19 @@ def list_models(db: Session = Depends(get_db), _: User = Depends(get_current_use
     return {"models": available_models(db)}
 
 
+@router.get("/features")
+def list_public_features(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    """Which workspace features an administrator has switched on.
+
+    The UI needs this to render a disabled state instead of a page whose every
+    action fails with 503 ``The X feature is disabled by an administrator``.
+    Unset keys default to enabled, matching ``require_feature``.
+    """
+    from app.services.feature_flags import FEATURE_KEYS, feature_enabled
+
+    return {"features": {key: feature_enabled(db, key) for key in FEATURE_KEYS}}
+
+
 @router.get("/conversations")
 def list_conversations(
     include_archived: bool = Query(default=False),
@@ -155,7 +169,15 @@ def list_conversations(
     if not include_archived:
         query = query.filter(AiConversation.is_archived.is_(False))
     rows = query.order_by(AiConversation.project_pinned.desc(), AiConversation.is_pinned.desc(), AiConversation.updated_at.desc()).all()
-    return [_serialize_conversation(row) for row in rows]
+    # One grouped count for the whole page instead of a query per conversation.
+    # The list used to hardcode 0, so every row claimed it had no messages.
+    counts = dict(
+        db.query(AiMessage.conversation_id, func.count(AiMessage.id))
+        .filter(AiMessage.conversation_id.in_([row.id for row in rows] or [-1]))
+        .group_by(AiMessage.conversation_id)
+        .all()
+    )
+    return [_serialize_conversation(row, counts.get(row.id, 0)) for row in rows]
 
 
 @router.post("/conversations")
@@ -869,14 +891,18 @@ async def upload_attachment(
         size_bytes=len(data),
         extracted_text=extracted,
     )
+    stored = True
     try:
         from app.services import document_store
 
         record.storage_path = document_store.save_bytes(user.id, record.filename, data)
     except (OSError, ValueError) as exc:
-        # Extraction still works from memory; retrieval will report the missing file.
+        # Extraction still works from memory, so the text preview is real, but the
+        # bytes were NOT stored: a later download/re-open will find nothing. Say so
+        # instead of returning a clean 200 -- this used to be a silent data loss.
+        logger.warning("Attachment bytes were not stored for user %s (%s): %s", user.id, record.filename, exc)
         record.storage_path = None
-        del exc
+        stored = False
     db.add(record)
     db.commit()
     db.refresh(record)
@@ -889,6 +915,10 @@ async def upload_attachment(
         "has_text": bool(record.extracted_text),
         "ocr_unavailable": ocr_unavailable,
         "preview": record.extracted_text[:400],
+        "stored": stored,
+        "warning": None
+        if stored
+        else "The file text was read, but the file itself could not be saved. Re-upload it before relying on a download.",
     }
 
 

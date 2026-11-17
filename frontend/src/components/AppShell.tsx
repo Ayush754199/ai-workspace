@@ -2,9 +2,11 @@ import React from "react";
 import { NavLink } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import WorkspaceFeatureMenu from "./WorkspaceFeatureMenu";
+import useFeatureFlags from "../hooks/useFeatureFlags";
 
 const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, logout } = useAuth();
+  const { isEnabled } = useFeatureFlags();
   const [mobileNavOpen, setMobileNavOpen] = React.useState(false);
   const [accountOpen, setAccountOpen] = React.useState(false);
   const navClass = ({ isActive }: { isActive: boolean }) => `shell-nav-item${isActive ? " active" : ""}`;
@@ -18,10 +20,11 @@ const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           <NavLink className={navClass} to="/assistant"><span>✦</span><span className="shell-nav-text">Assistant</span></NavLink>
           <NavLink className={navClass} to="/rooms"><span>⌁</span><span className="shell-nav-text">Rooms</span></NavLink>
           <NavLink className={navClass} to="/calls"><span>☎</span><span className="shell-nav-text">Calls</span></NavLink>
-          <NavLink className={navClass} to="/images"><span>◈</span><span className="shell-nav-text">Images</span></NavLink>
-          <NavLink className={navClass} to="/documents"><span>▤</span><span className="shell-nav-text">Documents</span></NavLink>
-          <NavLink className={navClass} to="/office"><span>▦</span><span className="shell-nav-text">Office</span></NavLink>
-          <NavLink className={navClass} to="/research"><span>◎</span><span className="shell-nav-text">Research</span></NavLink>
+          <NavLink className={navClass} to="/images"><span>◈</span><span className="shell-nav-text">Images</span>{!isEnabled("images") && <span className="shell-nav-badge">off</span>}</NavLink>
+          <NavLink className={navClass} to="/documents"><span>▤</span><span className="shell-nav-text">Documents</span>{!isEnabled("documents") && <span className="shell-nav-badge">off</span>}</NavLink>
+          <NavLink className={navClass} to="/office"><span>▦</span><span className="shell-nav-text">Office</span>{!isEnabled("office") && <span className="shell-nav-badge">off</span>}</NavLink>
+          <NavLink className={navClass} to="/research"><span>◎</span><span className="shell-nav-text">Research</span>{!isEnabled("research") && <span className="shell-nav-badge">off</span>}</NavLink>
+          <NavLink className={navClass} to="/video-studio"><span>▷</span><span className="shell-nav-text">Video</span>{!isEnabled("video_generation") && <span className="shell-nav-badge">off</span>}</NavLink>
           <p className="shell-nav-label shell-nav-label-spaced">Manage</p>
           {user?.is_admin && <NavLink className={navClass} to="/admin"><span>⌘</span><span className="shell-nav-text">Admin</span></NavLink>}
         </nav>

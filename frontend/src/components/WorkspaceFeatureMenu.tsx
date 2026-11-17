@@ -2,9 +2,11 @@ import React, { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { chatV2, Conversation } from "../api/workspaceApi";
 import { useAuth } from "../contexts/AuthContext";
+import useFeatureFlags from "../hooks/useFeatureFlags";
 
 const WorkspaceFeatureMenu: React.FC = () => {
   const { token, logout } = useAuth();
+  const { isEnabled } = useFeatureFlags();
   const location = useLocation();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
@@ -54,10 +56,11 @@ const WorkspaceFeatureMenu: React.FC = () => {
               <button className={location.pathname === "/assistant" ? "active" : ""} type="button" onClick={() => openChat()}><span>💬</span><span><strong>Chat</strong><small>Ask anything</small></span></button>
               <Link className={location.pathname === "/rooms" ? "active" : ""} to="/rooms" onClick={close}><span>⌁</span><span><strong>Rooms</strong><small>Team conversations</small></span></Link>
               <Link className={location.pathname === "/calls" ? "active" : ""} to="/calls" onClick={close}><span>☎</span><span><strong>Calls</strong><small>Voice and video</small></span></Link>
-              <Link to="/images" onClick={close}><span>✦</span><span><strong>Images</strong><small>Generate or edit</small></span></Link>
-              <Link to="/documents" onClick={close}><span>▤</span><span><strong>Documents</strong><small>Read and generate</small></span></Link>
-              <Link to="/office" onClick={close}><span>▦</span><span><strong>Office</strong><small>Workspace tools</small></span></Link>
-              <Link to="/research" onClick={close}><span>◎</span><span><strong>Research</strong><small>Live web sources</small></span></Link>
+              <Link to="/images" onClick={close}><span>✦</span><span><strong>Images</strong><small>{isEnabled("images") ? "Generate or edit" : "Disabled by an administrator"}</small></span></Link>
+              <Link to="/documents" onClick={close}><span>▤</span><span><strong>Documents</strong><small>{isEnabled("documents") ? "Read and generate" : "Disabled by an administrator"}</small></span></Link>
+              <Link to="/office" onClick={close}><span>▦</span><span><strong>Office</strong><small>{isEnabled("office") ? "Workspace tools" : "Disabled by an administrator"}</small></span></Link>
+              <Link to="/research" onClick={close}><span>◎</span><span><strong>Research</strong><small>{isEnabled("research") ? "Live web sources" : "Disabled by an administrator"}</small></span></Link>
+              <Link to="/video-studio" onClick={close}><span>▷</span><span><strong>Video</strong><small>{isEnabled("video_generation") ? "Generate and edit" : "Disabled by an administrator"}</small></span></Link>
             </nav>
             <div className="workspace-history-head"><strong>Chat history</strong><button type="button" onClick={() => openChat()}>＋ New chat</button></div>
             <div className="workspace-history-list">

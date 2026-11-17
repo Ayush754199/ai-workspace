@@ -6,6 +6,9 @@
 **/.env
 **/.env.*
 !**/.env.example
+# Locally generated JWT signing key (never commit; set JWT_SECRET in production)
+.jwt_secret
+backend/.jwt_secret
 
 # Python
 __pycache__/

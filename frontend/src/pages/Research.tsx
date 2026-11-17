@@ -3,6 +3,7 @@ import AppShell from "../components/AppShell";
 import { useAuth } from "../contexts/AuthContext";
 import { ResearchResult, researchApi } from "../api/workspaceApi";
 import renderMarkdown from "../components/Markdown";
+import FeatureGate from "../components/FeatureGate";
 
 const SUGGESTIONS = [
   "Latest stable Python release and what changed",
@@ -10,7 +11,7 @@ const SUGGESTIONS = [
   "Current best practices for PostgreSQL connection pooling",
 ];
 
-const Research: React.FC = () => {
+const ResearchPage: React.FC = () => {
   const { token } = useAuth();
   const [question, setQuestion] = useState("");
   const [result, setResult] = useState<ResearchResult | null>(null);
@@ -107,5 +108,11 @@ const Research: React.FC = () => {
     </AppShell>
   );
 };
+
+const Research: React.FC = () => (
+  <FeatureGate feature="research">
+    <ResearchPage />
+  </FeatureGate>
+);
 
 export default Research;

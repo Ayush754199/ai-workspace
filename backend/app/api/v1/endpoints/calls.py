@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import secrets
 from datetime import datetime, timezone
 from typing import Any
@@ -21,6 +22,8 @@ from app.services.call_service import (
 )
 
 router = APIRouter(prefix="/calls", tags=["calls"])
+
+logger = logging.getLogger(__name__)
 
 
 class StartCallRequest(BaseModel):
@@ -256,7 +259,24 @@ async def call_signalling(websocket: WebSocket, token: str = Query(default="")):
     # must select that same protocol in the handshake. Without this response
     # header browsers reject the connection before the call hub can register it.
     await websocket.accept(subprotocol=protocol_token or None)
-    call_hub.add(int(user.id), websocket)
+    user_id = int(user.id)
+    call_hub.add(user_id, websocket)
+    # Replay any ringing calls that were started while the client was offline,
+    # so a mobile user opening the page mid-ring still sees the Accept prompt
+    # instead of an empty white screen with no incoming-call UI at all.
+    try:
+        if mongo.enabled:
+            await mongo.verify_ready()
+            pending = mongo.calls.find(
+                {"participant_ids": user_id, "status": "ringing"}
+            ).sort("updated_at", -1).limit(5)
+            async for item in pending:
+                await websocket.send_json(
+                    {"type": "call.incoming", "call": public_call(item)}
+                )
+    except Exception as exc:  # noqa: BLE001 - never drop a live call hub on replay failure
+        logger.warning("calls ws replay failed for user %s: %s", user_id, exc)
+
     try:
         while True:
             await websocket.receive_text()

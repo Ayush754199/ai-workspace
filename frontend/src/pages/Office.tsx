@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import AppShell from "../components/AppShell";
 import { useAuth } from "../contexts/AuthContext";
 import { downloadBlob, officeApi } from "../api/workspaceApi";
+import FeatureGate from "../components/FeatureGate";
 
 const TOOLS = [
   { id: "xlsx", label: "Excel spreadsheet", hint: "Tables with an AI-authored dataset", icon: "▦" },
@@ -19,7 +20,7 @@ const EXAMPLES: Record<string, string> = {
   pdf: "A one-page executive summary of our remote-work policy changes.",
 };
 
-const Office: React.FC = () => {
+const OfficePage: React.FC = () => {
   const { token } = useAuth();
   const [format, setFormat] = useState("xlsx");
   const [prompt, setPrompt] = useState("");
@@ -126,5 +127,11 @@ const Office: React.FC = () => {
     </AppShell>
   );
 };
+
+const Office: React.FC = () => (
+  <FeatureGate feature="office">
+    <OfficePage />
+  </FeatureGate>
+);
 
 export default Office;

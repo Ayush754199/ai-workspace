@@ -33,10 +33,11 @@ const Register: React.FC = () => {
         <div className="auth-heading"><p className="eyebrow">Get started</p><h2>Create your workspace account</h2><p>Bring conversations, images and documents together.</p></div>
         <form onSubmit={handleSubmit} className="auth-form">
           <div>
-            <label className="auth-label">
+            <label className="auth-label" htmlFor="register-mobile">
               Mobile number
             </label>
             <input
+              id="register-mobile"
               value={mobile_number}
               onChange={(e) => setMobile_number(e.target.value)}
               type="tel"
@@ -48,10 +49,11 @@ const Register: React.FC = () => {
             />
           </div>
           <div>
-            <label className="auth-label">
+            <label className="auth-label" htmlFor="register-email">
               Email
             </label>
             <input
+              id="register-email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               type="email"
@@ -61,10 +63,11 @@ const Register: React.FC = () => {
             />
           </div>
           <div>
-            <label className="auth-label">
+            <label className="auth-label" htmlFor="register-password">
               Password
             </label>
             <input
+              id="register-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               type="password"
@@ -74,10 +77,11 @@ const Register: React.FC = () => {
             />
           </div>
           <div>
-            <label className="auth-label">
+            <label className="auth-label" htmlFor="register-name">
               Full Name
             </label>
             <input
+              id="register-name"
               value={full_name}
               onChange={(e) => setFull_name(e.target.value)}
               type="text"

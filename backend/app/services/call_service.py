@@ -6,6 +6,8 @@ the in-process hub is only the low-latency notification path.
 """
 from __future__ import annotations
 
+import asyncio
+import logging
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -16,6 +18,8 @@ from app.core.config import settings
 from app.db.session import mongo
 from app.models.user import User
 
+
+logger = logging.getLogger("app.calls")
 
 CALL_STATES = {"ringing", "accepted", "active", "rejected", "cancelled", "ended", "missed"}
 TERMINAL_STATES = {"rejected", "cancelled", "ended", "missed"}
@@ -155,6 +159,27 @@ async def cleanup_stale_calls() -> None:
             "terminal_reason": "stale_cleanup",
         }},
     )
+
+
+async def sweep_stale_calls_forever(interval_seconds: int | None = None) -> None:
+    """Run :func:`cleanup_stale_calls` on a timer for the life of the process.
+
+    Cleanup used to run only when a client hit ``/calls/history`` or
+    ``/calls/busy``.  A call abandoned by a crashed browser (no ``/end`` and no
+    LiveKit webhook) therefore kept both users marked busy with
+    ``409 One or more users are already busy`` until somebody happened to open
+    one of those pages.  This sweeper makes the expiry independent of traffic.
+    Failures are logged and retried on the next tick; it never stops the loop.
+    """
+    delay = interval_seconds or settings.CALL_STALE_SWEEP_INTERVAL_SECONDS
+    while True:
+        try:
+            await cleanup_stale_calls()
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - a maintenance tick must never kill the loop
+            logger.warning("stale call sweep failed", exc_info=True)
+        await asyncio.sleep(delay)
 
 
 async def purge_call_data() -> dict[str, int]:

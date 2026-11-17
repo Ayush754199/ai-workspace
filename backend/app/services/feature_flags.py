@@ -19,6 +19,10 @@ def feature_enabled(db: Session, key: str, default: bool = True) -> bool:
     return bool(setting.value.get(key, default))
 
 
+# Every toggle an admin can flip (mirrors the Features tab in the console).
+FEATURE_KEYS: tuple[str, ...] = ("research", "images", "documents", "office", "voice", "video_generation")
+
+
 def require_feature(key: str):
     """FastAPI dependency factory."""
     from app.core.database import get_db

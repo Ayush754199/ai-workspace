@@ -179,6 +179,10 @@ class Settings(BaseSettings):
     # Calls that have no LiveKit heartbeat/webhook activity beyond this window
     # are stale and must not keep a user marked busy forever.
     LIVEKIT_STALE_CALL_TIMEOUT_SECONDS: int = Field(default=21600, ge=300, le=604800)
+    # How often the background sweeper closes abandoned calls. Expiry used to run
+    # only when a client called /calls/history or /calls/busy, so an abandoned
+    # call could keep everyone marked busy indefinitely.
+    CALL_STALE_SWEEP_INTERVAL_SECONDS: int = Field(default=300, ge=30, le=3600)
     LIVEKIT_MAX_PARTICIPANTS: int = Field(default=12, ge=2, le=100)
     # Emergency, explicitly opt-in cleanup switch. Keep false in all normal
     # deployments; it is used only for a controlled call-data reset.
@@ -207,10 +211,12 @@ def _load_settings() -> "Settings":
     a hosted platform (Render, Fly, Railway) stays down until someone edits an
     environment variable -- with no working deploy to debug on.
 
-    So: a *missing* secret is generated once per process and logged loudly with
-    the exact fix. A *too short* secret is never silently accepted -- it is
-    replaced by a random value and the operator is told to persist a real one,
-    otherwise every restart signs users out.
+    So: a *missing* secret is generated and, on a dev machine, persisted to
+    ``backend/.jwt_secret`` so a local restart does not sign everyone out. A *too
+    short* secret is never silently accepted -- it is replaced by a random value and
+    the operator is told to persist a real one. Hosted platforms (Render, Fly,
+    Railway) get no persistence: their filesystem is disposable, so the only real
+    fix there is to set JWT_SECRET in the service environment.
     """
     import logging
 
@@ -233,15 +239,49 @@ def _load_settings() -> "Settings":
 
     import secrets as _secrets
 
+    def _persist(secret: str) -> None:
+        """Keep the generated key across restarts when the operator made no choice.
+
+        Without this the key is regenerated on every process start, so every
+        restart/redeploy signs every user out. It is written only when JWT_SECRET is
+        genuinely absent (a too-short value is the operator's to fix), and it never
+        overrides a real environment value.
+        """
+        if os.getenv("JWT_SECRET", "").strip():
+            return
+        if os.getenv("ENVIRONMENT", "").strip().lower() in {"production", "prod"}:
+            return
+        # A container filesystem is disposable, so a path there changes nothing.
+        if os.getenv("RENDER", "").strip() or os.getenv("DYNO", "").strip():
+            return
+        path = Path(os.getenv("JWT_SECRET_FILE", str(Path(__file__).resolve().parents[2] / ".jwt_secret")))
+        try:
+            if path.is_file():
+                existing = path.read_text(encoding="utf-8").strip()
+                if len(existing) >= 32:
+                    os.environ["JWT_SECRET"] = existing
+                    return
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(secret, encoding="utf-8")
+            try:
+                path.chmod(0o600)
+            except OSError:
+                pass
+        except OSError:
+            pass
+
+    secret = _secrets.token_urlsafe(48)
+    _persist(secret)
+    resolved = os.environ.get("JWT_SECRET") or secret
     logger.error(
-        "JWT_SECRET is missing or shorter than 32 characters; using an ephemeral "
-        "random secret for this process. Users will be signed out on every restart.\n"
-        "Fix: set JWT_SECRET in the service environment (Render: Dashboard -> your "
-        "service -> Environment), then redeploy.\n"
+        "JWT_SECRET is missing or shorter than 32 characters; using a %s signing key. "
+        "Pin one in the service environment (Render: Dashboard -> your service -> "
+        "Environment) so it survives restarts.\n"
         "Generate one with: python -c \"import secrets; print(secrets.token_urlsafe(48))\"\n"
-        "Changing render.yaml alone does NOT update an existing service."
+        "Changing render.yaml alone does NOT update an existing service.",
+        "persisted" if resolved == os.environ.get("JWT_SECRET") else "throwaway per-process",
     )
-    return Settings(JWT_SECRET=_secrets.token_urlsafe(48))
+    return Settings(JWT_SECRET=resolved)
 
 
 settings = _load_settings()

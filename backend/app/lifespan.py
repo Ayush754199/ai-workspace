@@ -29,6 +29,9 @@ from fastapi import FastAPI
 
 logger = logging.getLogger("app.lifespan")
 
+# Long-running background tasks owned by the lifespan (cancelled on shutdown).
+_tasks: dict[str, asyncio.Task] = {}
+
 # Upper bound on the startup MongoDB probe. Requests still fail fast with a 503 and
 # a Retry-After header when the cluster is down (app.db.session.verify_ready).
 startup_timeout = 2.0
@@ -118,15 +121,43 @@ async def close_mongo() -> None:
         logger.exception("MongoDB client close failed")
 
 
+async def start_call_sweeper() -> None:
+    """Close abandoned calls on a timer instead of only on traffic.
+
+    The task is cancelled on shutdown; a missing/short Mongo configuration simply
+    makes each tick a no-op.
+    """
+    from app.db.session import mongo
+
+    if not mongo.enabled:
+        return
+    from app.services.call_service import sweep_stale_calls_forever
+
+    _tasks["call_sweeper"] = asyncio.create_task(sweep_stale_calls_forever(), name="call-sweeper")
+
+
+async def stop_call_sweeper() -> None:
+    task = _tasks.pop("call_sweeper", None)
+    if task is None:
+        return
+    task.cancel()
+    try:
+        await task
+    except (asyncio.CancelledError, Exception):  # noqa: BLE001 - shutdown must not raise
+        pass
+
+
 async def on_startup() -> None:
     init_database()
     provision_admin()
     recover_media_jobs()
     await init_mongo()
     await reset_call_data_if_requested()
+    await start_call_sweeper()
 
 
 async def on_shutdown() -> None:
+    await stop_call_sweeper()
     await close_mongo()
 
 
