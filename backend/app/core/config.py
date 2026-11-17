@@ -257,7 +257,7 @@ def _load_settings() -> "Settings":
         genuinely absent (a too-short value is the operator's to fix), and it never
         overrides a real environment value.
         """
-        if os.getenv("JWT_SECRET", "").strip():
+        if len(os.environ.get("JWT_SECRET", "").strip()) >= 32:
             return
         if os.getenv("ENVIRONMENT", "").strip().lower() in {"production", "prod"}:
             return
@@ -280,18 +280,28 @@ def _load_settings() -> "Settings":
         except OSError:
             pass
 
+    resolved_env = os.environ.get("JWT_SECRET", "").strip()
+    if len(resolved_env) >= 32:  # safety net: Settings() should have succeeded
+        return Settings(JWT_SECRET=resolved_env)
+
+    # NEVER feed the short env value back into Settings(): it fails min_length=32
+    # with the exact ValidationError we are already recovering from.
     secret = _secrets.token_urlsafe(48)
-    _persist(secret)
-    resolved = os.environ.get("JWT_SECRET") or secret
-    logger.error(
-        "JWT_SECRET is missing or shorter than 32 characters; using a %s signing key. "
-        "Pin one in the service environment (Render: Dashboard -> your service -> "
-        "Environment) so it survives restarts.\n"
-        "Generate one with: python -c \"import secrets; print(secrets.token_urlsafe(48))\"\n"
-        "Changing render.yaml alone does NOT update an existing service.",
-        "persisted" if resolved == os.environ.get("JWT_SECRET") else "throwaway per-process",
+    is_prod = os.getenv("ENVIRONMENT", "").strip().lower() in {"production", "prod"}
+    if not is_prod:
+        # Dev: reuse a persisted key when one exists so restarts keep sessions.
+        _persist(secret)
+        persisted = os.environ.get("JWT_SECRET", "").strip()
+        if len(persisted) >= 32:
+            secret = persisted
+    logger.critical(
+        "JWT_SECRET is %s and shorter than 32 characters. The service is booting with a "
+        "SECURE EPHEMERAL key: every bearer token is invalidated on restart. "
+        "Fix: Render -> your service -> Environment -> JWT_SECRET -> paste a 48+ random "
+        "value (python -c \"import secrets; print(secrets.token_urlsafe(48))\") and redeploy.",
+        f"'{resolved_env[:8]}…'" if resolved_env else "unset",
     )
-    return Settings(JWT_SECRET=resolved)
+    return Settings(JWT_SECRET=secret)
 
 
 settings = _load_settings()
