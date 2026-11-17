@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
-import { Attachment, ChatMessage, Conversation, GeneratedChatFile, chatV2, fetchAttachmentBlob, imageApi } from "../api/workspaceApi";
+import { Attachment, ChatMessage, ChatModel, Conversation, GeneratedChatFile, chatV2, fetchAttachmentBlob, imageApi } from "../api/workspaceApi";
 import renderMarkdown from "../components/Markdown";
 import VoiceControls from "../components/VoiceControls";
 import ChatNavigationDrawer from "../components/ChatNavigationDrawer";
@@ -123,6 +123,8 @@ const ChatWorkspace: React.FC = () => {
   const [premiumNotice, setPremiumNotice] = useState(false);
   const [search, setSearch] = useState("");
   const [showArchived, setShowArchived] = useState(false);
+  const [models, setModels] = useState<ChatModel[]>([]);
+  const [selectedModel, setSelectedModel] = useState("auto");
   // Web search is enabled by default so current answers can use fresh sources.
   const [webSearch, setWebSearch] = useState(false);
   const [generateAsFile, setGenerateAsFile] = useState(false);
@@ -172,6 +174,18 @@ const ChatWorkspace: React.FC = () => {
     if (!token) return;
     loadConversations();
   }, [token, loadConversations]);
+
+  // Load the selectable models once; "auto" is always a safe fallback.
+  useEffect(() => {
+    if (!token) return;
+    chatV2
+      .models(token)
+      .then((data) => {
+        const selectable = (data.models || []).filter((model) => model.selectable);
+        setModels(selectable.length ? selectable : [{ id: "auto", label: "Auto", provider: "auto", capabilities: ["chat"], free: true, selectable: true, reason: null }]);
+      })
+      .catch(() => setModels([{ id: "auto", label: "Auto", provider: "auto", capabilities: ["chat"], free: true, selectable: true, reason: null }]));
+  }, [token]);
 
   useEffect(() => {
     const requestedId = Number(searchParams.get("conversation"));
@@ -313,7 +327,7 @@ const ChatWorkspace: React.FC = () => {
       role: "assistant",
       content: "",
       provider: null,
-      model: "auto",
+      model: selectedModel,
       status: "streaming",
       attachments: [],
       citations: [],
@@ -370,7 +384,7 @@ const ChatWorkspace: React.FC = () => {
       for await (const event of chatV2.stream(
         token,
         conversationId,
-        { content, model: "auto", attachment_ids: attachmentIds, web_search: webSearch },
+        { content, model: selectedModel, attachment_ids: attachmentIds, web_search: webSearch },
         controller.signal,
       )) {
         if (event.error) throw new Error(event.error);
@@ -929,6 +943,19 @@ const ChatWorkspace: React.FC = () => {
             />
             <div className="cw-composer-actions">
               <button type="button" className="cw-icon" title="Attach files" onClick={() => fileRef.current?.click()}>📎</button>
+              {models.length > 0 && (
+                <label className="cw-model-picker" title="Model chosen for the next message">
+                  <select
+                    value={selectedModel}
+                    onChange={(event) => setSelectedModel(event.target.value)}
+                    aria-label="AI model"
+                  >
+                    {models.map((model) => (
+                      <option key={model.id} value={model.id}>{model.label}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
               <VoiceControls
                 onTranscript={(text) => setPrompt((current) => (current ? `${current} ${text}` : text))}
                 onVoiceSubmit={(text) => void send(text)}
