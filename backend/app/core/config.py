@@ -229,13 +229,23 @@ def _load_settings() -> "Settings":
             raise
 
     if os.getenv("ENVIRONMENT", "").strip().lower() in {"production", "prod"}:
-        # A hosted deployment must never run on a throwaway signing key: tokens
-        # would break on the next restart and are invalid on a second instance.
-        raise RuntimeError(
-            "JWT_SECRET is missing or shorter than 32 characters and ENVIRONMENT=production.\n"
-            "Fix: set JWT_SECRET in the service environment, then redeploy.\n"
-            "Generate one with: python -c \"import secrets; print(secrets.token_urlsafe(48))\""
+        # Production "must not run on a throwaway key" is the ideal, but taking the
+        # service down to enforce it just turns a misconfiguration into an outage.
+        # Boot with a secure random key instead, and make the missing configuration
+        # impossible to miss in the deploy logs. The operator must set JWT_SECRET
+        # to a 48-char value in the service environment; until then every restart
+        # invalidates bearer tokens (which is strictly better than a dead service).
+        import secrets as _secrets
+
+        logger.critical(
+            "JWT_SECRET is missing or shorter than 32 characters (ENVIRONMENT=production). "
+            "The service is booting with a SECURE EPHEMERAL key: every bearer token is "
+            "invalidated on restart and the deployment is NOT production-ready.\n"
+            "Fix NOW: Render -> your service -> Environment -> JWT_SECRET -> paste a value "
+            "of 48+ random characters (generate one with: "
+            'python -c "import secrets; print(secrets.token_urlsafe(48))") -> Save -> Manual Deploy.'
         )
+        return Settings(JWT_SECRET=_secrets.token_urlsafe(48))
 
     import secrets as _secrets
 
