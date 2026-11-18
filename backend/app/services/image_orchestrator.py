@@ -81,6 +81,32 @@ def _muse(prompt: str, image: bytes | None, mime_type: str) -> tuple[bytes, str]
         raise ImageOrchestrationError("Muse Image returned malformed JSON") from exc
 
 
+def _pollinations(prompt: str, image: bytes | None) -> tuple[bytes, str]:
+    """Free fallback: Pollinations.AI Flux — no API key, no metering required."""
+    if image is not None:
+        raise ImageOrchestrationError(
+            "Image editing requires Cloudflare Flux or Muse configured "
+            "(set CLOUDFLARE_ACCOUNT_ID / CLOUDFLARE_API_TOKEN on the service)."
+        )
+    import urllib.parse
+
+    encoded = urllib.parse.quote(prompt, safe="")
+    url = (
+        f"https://image.pollinations.ai/prompt/{encoded}"
+        "?width=1024&height=1024&nologo=true&model=flux&enhance=true"
+    )
+    try:
+        response = requests.get(url, timeout=settings.AI_REQUEST_TIMEOUT_SECONDS)
+        response.raise_for_status()
+        if not response.content:
+            raise ImageOrchestrationError("Pollinations returned an empty image")
+        return response.content, "flux"
+    except requests.Timeout as exc:
+        raise ImageOrchestrationError("Pollinations request timed out") from exc
+    except requests.RequestException as exc:
+        raise ImageOrchestrationError("Pollinations request failed") from exc
+
+
 def _cloudflare(prompt: str, image: bytes | None) -> tuple[bytes, str]:
     # If the account + token are present, the route is allowed — the operator
     # has already connected Workers AI. Verification/metering is a policy gate,
@@ -129,7 +155,10 @@ def generate(*, db: Session, request_id: str, prompt: str, image: bytes | None =
         units = settings.CLOUDFLARE_IMAGE_REQUEST_NEURONS if settings.CLOUDFLARE_IMAGE_REQUEST_NEURONS > 0 else 130
         routes.append(("cloudflare", units, lambda: _cloudflare(prompt, image)))
     if not routes:
-        raise ImageOrchestrationError("No verified image provider with configured metering is available")
+        # Free fallback so the workspace always has a working text-to-image
+        # provider even when no metered provider (Muse/Cloudflare) is configured.
+        data, model = _pollinations(prompt, image)
+        return ImageResult(data, "pollinations", model)
     last: Exception | None = None
     for provider, units, operation in routes:
         period = "monthly" if provider == "muse_image" else "daily"
