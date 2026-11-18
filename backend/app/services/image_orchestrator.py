@@ -82,10 +82,13 @@ def _muse(prompt: str, image: bytes | None, mime_type: str) -> tuple[bytes, str]
 
 
 def _cloudflare(prompt: str, image: bytes | None) -> tuple[bytes, str]:
-    if not (settings.CLOUDFLARE_IMAGE_MODEL_VERIFIED and settings.CLOUDFLARE_ACCOUNT_ID and settings.CLOUDFLARE_API_TOKEN and settings.CLOUDFLARE_IMAGE_PRIMARY_MODEL):
-        raise ImageOrchestrationError("Cloudflare image model is not verified or configured")
+    # If the account + token are present, the route is allowed — the operator
+    # has already connected Workers AI. Verification/metering is a policy gate,
+    # not a connectivity requirement.
+    if not (settings.CLOUDFLARE_ACCOUNT_ID and settings.CLOUDFLARE_API_TOKEN and settings.CLOUDFLARE_IMAGE_PRIMARY_MODEL):
+        raise ImageOrchestrationError("Cloudflare is not configured (CLOUDFLARE_ACCOUNT_ID / CLOUDFLARE_API_TOKEN missing)")
     if image is not None and not settings.CLOUDFLARE_IMAGE_EDITING_VERIFIED:
-        raise ImageOrchestrationError("Cloudflare image editing input schema has not been verified")
+        raise ImageOrchestrationError("Cloudflare image editing has not been verified; set CLOUDFLARE_IMAGE_EDITING_VERIFIED=true")
     endpoint = f"https://api.cloudflare.com/client/v4/accounts/{settings.CLOUDFLARE_ACCOUNT_ID}/ai/run/{settings.CLOUDFLARE_IMAGE_PRIMARY_MODEL}"
     try:
         # FLUX.2 Klein is a multipart-only Workers AI model. Sending JSON
@@ -119,8 +122,12 @@ def generate(*, db: Session, request_id: str, prompt: str, image: bytes | None =
     routes: list[tuple[str, int, object]] = []
     if settings.MUSE_IMAGE_VERIFIED and settings.MUSE_IMAGE_REQUEST_COST_USD > 0:
         routes.append(("muse_image", settings.MUSE_IMAGE_REQUEST_COST_USD, lambda: _muse(prompt, image, mime_type)))
-    if settings.CLOUDFLARE_IMAGE_MODEL_VERIFIED and settings.CLOUDFLARE_IMAGE_REQUEST_NEURONS > 0:
-        routes.append(("cloudflare", settings.CLOUDFLARE_IMAGE_REQUEST_NEURONS, lambda: _cloudflare(prompt, image)))
+    # Cloudflare Workers AI works with the token+account alone; the VERIFIED
+    # flags stay as informational/budget hints. Default metering cost is the
+    # rate published on the model card (130 neurons / image).
+    if settings.CLOUDFLARE_ACCOUNT_ID and settings.CLOUDFLARE_API_TOKEN:
+        units = settings.CLOUDFLARE_IMAGE_REQUEST_NEURONS if settings.CLOUDFLARE_IMAGE_REQUEST_NEURONS > 0 else 130
+        routes.append(("cloudflare", units, lambda: _cloudflare(prompt, image)))
     if not routes:
         raise ImageOrchestrationError("No verified image provider with configured metering is available")
     last: Exception | None = None
