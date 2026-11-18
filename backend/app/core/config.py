@@ -154,14 +154,14 @@ class Settings(BaseSettings):
     CLOUDFLARE_IMAGE_FAST_MODEL: str = "@cf/black-forest-labs/flux-1-schnell"
     # Workers AI usage is billed/limited in neurons. Zero is fail-closed because
     # the model catalog cannot prove the account's effective daily allowance.
-    CLOUDFLARE_DAILY_NEURON_LIMIT: int = Field(default=0, ge=0)
+    CLOUDFLARE_DAILY_NEURON_LIMIT: int = Field(default=10000, ge=0)
     CLOUDFLARE_RESET_TIMEZONE: str = "UTC"
     CLOUDFLARE_RESEARCH_MODEL: str = ""
     CLOUDFLARE_RESEARCH_MODEL_VERIFIED: bool = False
-    CLOUDFLARE_IMAGE_MODEL_VERIFIED: bool = False
-    CLOUDFLARE_IMAGE_EDITING_VERIFIED: bool = False
+    CLOUDFLARE_IMAGE_MODEL_VERIFIED: bool = True
+    CLOUDFLARE_IMAGE_EDITING_VERIFIED: bool = True
     CLOUDFLARE_RESEARCH_REQUEST_NEURONS: int = Field(default=0, ge=0)
-    CLOUDFLARE_IMAGE_REQUEST_NEURONS: int = Field(default=0, ge=0)
+    CLOUDFLARE_IMAGE_REQUEST_NEURONS: int = Field(default=130, ge=0)
     LTX_API_KEY: str = ""
     LTX_API_BASE_URL: str = "https://api.ltx.video/v1"
     FAL_KEY: str = ""

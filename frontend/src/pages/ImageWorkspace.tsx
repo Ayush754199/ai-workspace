@@ -5,10 +5,18 @@ import { downloadBlob, imageApi } from "../api/workspaceApi";
 import FeatureGate from "../components/FeatureGate";
 
 /**
- * Image AI: generate (text or image-to-image through /chat/image), understand,
- * remove background, enhance and prompt variations. Every action reports the
- * real backend error when a provider is missing.
+ * Image AI — ChatGPT-style creation studio.
+ * Everything runs through the live image pipeline (Cloudflare Workers AI Flux);
+ * edit, enhance and understand an uploaded image end to end.
  */
+const PROMPT_IDEAS = [
+  "A cinematic portrait of a lighthouse keeper at golden hour, film grain",
+  "Studio product shot of a sneaker on matte black, soft studio lights",
+  "Watercolor illustration of a fox in a snowy forest",
+  "Futuristic city skyline at dusk, neon reflections on wet streets",
+  "Minimal logo for a coffee brand, warm earthy tones",
+];
+
 const ImageWorkspacePage: React.FC = () => {
   const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
   const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "webp"]);
@@ -61,131 +69,168 @@ const ImageWorkspacePage: React.FC = () => {
     setVariations([]);
   };
 
+  const downloadResult = () => {
+    if (resultBlob) void downloadBlob(resultBlob, "ai-image.png");
+  };
+
   return (
     <AppShell>
-      <div className="tool-page">
-        <header className="tool-head">
+      <div className="img-page">
+        <header className="tool-head img-head">
           <div>
-            <p className="eyebrow">Image AI</p>
-            <h1>Create and edit images</h1>
-            <p className="page-subtitle">Generate from a prompt, edit an uploaded image, remove backgrounds, enhance, or ask the vision model about it.</p>
+            <p className="eyebrow">Image Studio</p>
+            <h1>Create with AI</h1>
+            <p className="page-subtitle">Generate, edit and understand images — powered by Cloudflare Workers AI Flux.</p>
           </div>
           <a className="tool-link" href="/assistant">← Back to chat</a>
         </header>
 
-        {error && <div className="tool-error" role="alert">{error}</div>}
+        {error && <div className="tool-error img-error" role="alert">{error}</div>}
 
-        <div className="tool-grid">
-          <section className="tool-card">
-            <h2>Prompt</h2>
-            <label className="tool-field">
-              <span>{source ? "Describe the edit" : "Describe the image"}</span>
-              <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={4} placeholder="A cinematic photo of a mountain lake at sunrise, ultra detailed" />
-            </label>
-            <div
-              className="doc-drop compact"
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => {
-                e.preventDefault();
-                if (e.dataTransfer.files[0]) chooseFile(e.dataTransfer.files[0]);
-              }}
-              onClick={() => inputRef.current?.click()}
-            >
-              <strong>{source ? source.name : "Attach an image to edit (optional)"}</strong>
-              <small>PNG, JPG or WEBP</small>
-              <input
-                ref={inputRef}
-                type="file"
-                hidden
-                accept="image/png,image/jpeg,image/webp"
-                onChange={(e) => {
-                  if (e.target.files?.[0]) chooseFile(e.target.files[0]);
-                  e.target.value = "";
-                }}
-              />
+        <div className="img-layout">
+          {/* Hero composer — ChatGPT-like centered input */}
+          <section className="img-hero">
+            <div className="img-orbit" aria-hidden="true" />
+            <div className="img-composer-shell">
+              <label className="img-composer">
+                <span className="img-composer-label">{source ? "Describe the edit" : "Imagine anything"}</span>
+                <textarea
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  rows={2}
+                  placeholder="A lighthouse on a cliff at stormy sunset, ultra detailed…"
+                  onKeyDown={(e) => {
+                    if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && prompt.trim()) void run("generate", async () => {
+                      if (!token) return;
+                      showBlob(await imageApi.generate(token, prompt.trim(), source));
+                    });
+                  }}
+                />
+              </label>
+              <div className="img-suggestions" aria-label="Prompt ideas">
+                {PROMPT_IDEAS.slice(0, 3).map((idea) => (
+                  <button key={idea} className="img-chip" onClick={() => setPrompt(idea)} title={idea}>
+                    {idea.length > 34 ? idea.slice(0, 32) + "…" : idea}
+                  </button>
+                ))}
+              </div>
+              <div className="img-composer-actions">
+                <div
+                  className={`img-attach ${source ? "has-source" : ""}`}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={source ? `Attached ${source.name}` : "Attach an image to edit (optional)"}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => { e.preventDefault(); if (e.dataTransfer.files[0]) chooseFile(e.dataTransfer.files[0]); }}
+                  onClick={() => inputRef.current?.click()}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") inputRef.current?.click(); }}
+                >
+                  {source ? <span>📎 {source.name}</span> : <span>📎 {sourceUrl ? "Source image" : "Attach to edit"}</span>}
+                  <input ref={inputRef} type="file" hidden accept="image/png,image/jpeg,image/webp"
+                    onChange={(e) => { if (e.target.files?.[0]) chooseFile(e.target.files[0]); e.target.value = ""; }} />
+                </div>
+                <button
+                  className="img-generate"
+                  disabled={!prompt.trim() || !token || busy === "generate"}
+                  onClick={() => run("generate", async () => {
+                    if (!token) return;
+                    showBlob(await imageApi.generate(token, prompt.trim(), source));
+                  })}
+                >
+                  {busy === "generate" ? <span className="img-spinner" aria-hidden="true" /> : <span className="img-spark">✦</span>}
+                  {busy === "generate" ? "Dreaming…" : source ? "Edit image" : "Generate"}
+                </button>
+              </div>
             </div>
-            <button
-              className="tool-btn primary"
-              disabled={!prompt.trim() || !token || busy === "generate"}
-              onClick={() =>
-                run("generate", async () => {
-                  if (!token) return;
-                  showBlob(await imageApi.generate(token, prompt.trim(), source));
-                })
-              }
-            >
-              {busy === "generate" ? "Working…" : source ? "✦ Apply edit" : "✦ Generate image"}
-            </button>
-            {resultBlob && (
-              <button className="tool-btn" onClick={() => void downloadBlob(resultBlob, "ai-image.png")}>⤓ Download result</button>
-            )}
           </section>
 
-          <section className="tool-card">
-            <h2>Preview</h2>
-            <div className="img-stage">
+          {/* Canvas */}
+          <section className="img-canvas-card" aria-label="Canvas">
+            <div className="img-canvas-head">
+              <h2>{resultUrl ? (busy ? "Creating…" : "Your image") : sourceUrl ? "Source image" : "Your canvas"}</h2>
+              {resultBlob && <button className="img-download" onClick={downloadResult}>⤓ Download</button>}
+            </div>
+            <div className="img-canvas">
               {resultUrl ? (
-                <img src={resultUrl} alt="Result" />
+                <img className="img-result" src={resultUrl} alt="Generated result" />
               ) : sourceUrl ? (
-                <img src={sourceUrl} alt="Source" />
+                <img className="img-result img-source" src={sourceUrl} alt="Source" />
+              ) : busy === "generate" ? (
+                <div className="img-loader" role="status" aria-label="Generating image">
+                  <div className="img-shimmer" />
+                  <p>Composing pixels…</p>
+                </div>
               ) : (
-                <div className="img-placeholder">Your generated or edited image appears here</div>
+                <div className="img-empty">
+                  <div className="img-empty-glyph">✦</div>
+                  <p>Your creation appears here.<br />Describe it above and press Generate.</p>
+                </div>
               )}
             </div>
-            <div className="tool-row">
-              <button disabled={!source || !token || busy === "bg"} onClick={() => run("bg", async () => {
-                if (!token || !source) return;
-                showBlob(await imageApi.removeBackground(token, source, tolerance));
-              })}>
-                {busy === "bg" ? "Removing…" : "Remove background"}
-              </button>
-              <button disabled={!source || !token || busy === "enhance"} onClick={() => run("enhance", async () => {
+          </section>
+
+          {/* Sidebar — tools */}
+          <aside className="img-side">
+            <div className="img-side-card">
+              <h3>Enhance &amp; edit</h3>
+              <button className="img-tool" disabled={!source || !token || busy === "enhance"} onClick={() => run("enhance", async () => {
                 if (!token || !source) return;
                 showBlob(await imageApi.enhance(token, source));
               })}>
-                {busy === "enhance" ? "Enhancing…" : "Enhance"}
+                <span>✨ Enhance</span>
+                <small>{busy === "enhance" ? "Enhancing…" : "Sharpen & colour-correct"}</small>
               </button>
+              <button className="img-tool" disabled={!source || !token || busy === "bg"} onClick={() => run("bg", async () => {
+                if (!token || !source) return;
+                showBlob(await imageApi.removeBackground(token, source, tolerance));
+              })}>
+                <span>🪄 Remove background</span>
+                <small>{busy === "bg" ? "Removing…" : "One-click cutout"}</small>
+              </button>
+              <label className="img-tolerance">
+                <span>Cutout tolerance <b>{tolerance}</b></span>
+                <input type="range" min={2} max={90} value={tolerance} onChange={(e) => setTolerance(Number(e.target.value))} />
+              </label>
             </div>
-            <label className="tool-field">
-              <span>Background tolerance: {tolerance}</span>
-              <input type="range" min={2} max={90} value={tolerance} onChange={(e) => setTolerance(Number(e.target.value))} />
-            </label>
-          </section>
 
-          <section className="tool-card">
-            <h2>Understand image</h2>
-            <label className="tool-field">
-              <span>Question about the attached image</span>
-              <input value={question} onChange={(e) => setQuestion(e.target.value)} />
-            </label>
-            <div className="tool-row">
-              <button className="tool-btn primary" disabled={!source || !token || busy === "understand"} onClick={() => run("understand", async () => {
+            <div className="img-side-card">
+              <h3>Understand this image</h3>
+              <input
+                className="img-question"
+                value={question}
+                onChange={(e) => setQuestion(e.target.value)}
+                placeholder="Ask anything…"
+                aria-label="Question about the image"
+              />
+              <button className="img-tool primary-tool" disabled={!source || !token || busy === "understand"} onClick={() => run("understand", async () => {
                 if (!token || !source) return;
                 const result = await imageApi.understand(token, source, question);
                 setAnswer(result.answer);
               })}>
-                {busy === "understand" ? "Asking…" : "Ask vision model"}
+                <span>🔎 Ask vision AI</span>
+                <small>{busy === "understand" ? "Reading…" : "Gemini answers"}</small>
               </button>
-              <button className="tool-btn" disabled={!source || !token || busy === "variations"} onClick={() => run("variations", async () => {
+              {answer && <div className="img-answer" role="status">{answer}</div>}
+              <button className="img-tool" disabled={!source || !token || busy === "variations"} onClick={() => run("variations", async () => {
                 if (!token || !source) return;
                 const result = await imageApi.variations(token, source, prompt);
                 setVariations(result.prompts);
               })}>
-                {busy === "variations" ? "…" : "Suggest variations"}
+                <span>🎲 Suggest variations</span>
+                <small>{busy === "variations" ? "Thinking…" : "Fresh prompt directions"}</small>
               </button>
+              {variations.length > 0 && (
+                <ul className="img-variations">
+                  {variations.map((item) => (
+                    <li key={item}>
+                      <span>{item}</span>
+                      <button onClick={() => setPrompt(item)}>Use</button>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
-            {answer && <div className="doc-answer">{answer}</div>}
-            {variations.length > 0 && (
-              <ul className="variation-list">
-                {variations.map((item) => (
-                  <li key={item}>
-                    <span>{item}</span>
-                    <button onClick={() => setPrompt(item)}>Use</button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
+          </aside>
         </div>
       </div>
     </AppShell>
