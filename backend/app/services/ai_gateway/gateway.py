@@ -127,8 +127,14 @@ class AIGateway:
         if label is not None:
             # Model readiness is checked before fetching credentials so that a
             # provider with a DB-only model can still be used, but a bare key never
-            # turns on a guessed model id.
-            if provider == "groq" and not (settings.GROQ_MODEL or self._db_model_for("groq")):
+            # turns on a guessed model id. A model id already proven eligible by the
+            # registry (verified, free, enabled) is equally explicit, so a custom
+            # registry must not be rejected just because GROQ_MODEL is unset.
+            if provider == "groq" and not (
+                settings.GROQ_MODEL
+                or self._db_model_for("groq")
+                or self._registry_model_verified("groq")
+            ):
                 return False, "Groq model id is not configured in GROQ_MODEL or the provider registry"
             try:
                 configured_credentials = get_provider_credentials(label)
@@ -154,6 +160,24 @@ class AIGateway:
             )
             return configured, "" if configured else "Cloudflare research is not configured or verified"
         return False, f"Provider '{provider}' has no enabled adapter"
+
+    def _registry_model_verified(self, provider: str) -> bool:
+        """Does the active registry already carry a verified free model for `provider`?
+
+        A registry entry is an explicit operator statement (verified, free, enabled),
+        so it satisfies the "no guessed model id" rule the same way GROQ_MODEL does.
+        Without this, a verified Groq entry was dropped from the fallback chain and a
+        retryable primary failure became "All eligible providers failed".
+        """
+        registry = self.registry
+        return any(
+            spec.provider == provider
+            and spec.enabled
+            and spec.verified_free
+            and spec.availability == "available"
+            and (spec.model or "").strip()
+            for spec in registry
+        )
 
     def _db_model_for(self, provider: str) -> str:
         """Model id supplied by a database row for this provider (may be empty)."""
@@ -215,9 +239,18 @@ class AIGateway:
         return tuple(routes)
 
     def preferences(self) -> tuple[str, ...]:
-        """Admin-configured provider order, restricted to the free allow-list."""
-        allowed = {name.lower().strip() for name in settings.FREE_PROVIDERS}
-        return tuple(name for name in self.order if name in allowed)
+        """Admin-configured provider order, restricted to the free allow-list.
+
+        The allow-list is read from settings on every call: caching it in
+        ``__init__`` meant a later change (an admin toggle, or a test patching
+        ``FREE_PROVIDERS``) was ignored and the fallback route was silently
+        dropped, so a retryable primary failure ended as "All eligible providers
+        failed" instead of trying the next provider.
+        """
+        allowed_names = settings.FREE_PROVIDERS or self.order or ()
+        allowed = {name.lower().strip() for name in allowed_names if str(name).strip()}
+        order = self.order or tuple(name.strip().lower() for name in allowed_names if str(name).strip())
+        return tuple(name for name in order if name in allowed)
 
     def route(self, capability: str = "chat", db: Session | None = None) -> Route:
         routes = self.eligible_routes(capability, db=db)

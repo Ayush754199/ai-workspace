@@ -99,9 +99,22 @@ def test_image_without_ocr_engine_raises(no_vision):
     from PIL import Image
 
     buffer = io.BytesIO()
-    Image.new("RGB", (10, 10), "white").save(buffer, format="PNG")
+    Image.new("RGB", (10, 10), (10, 10, 10)).save(buffer, format="PNG")
     with pytest.raises(docs.OcrUnavailable):
         docs.extract_any(buffer.getvalue(), "picture.png", "image/png")
+
+
+@requires_fitz
+def test_blank_image_is_not_sent_to_the_provider(monkeypatch):
+    """A pure-white scan is answered locally instead of spending provider quota."""
+    from PIL import Image
+
+    calls: list[int] = []
+    monkeypatch.setattr(vision, "ocr", lambda data: calls.append(len(data)) or "")
+    buffer = io.BytesIO()
+    Image.new("RGB", (20, 20), "white").save(buffer, format="PNG")
+    assert docs.ocr_image(buffer.getvalue()) == ""
+    assert calls == []
 
 
 def test_configured_vision_provider_is_used(monkeypatch):
@@ -161,5 +174,41 @@ def test_vision_returns_no_text_marker_as_empty(monkeypatch):
     monkeypatch.setitem(sys.modules, "google.genai", fake_genai)
     monkeypatch.setitem(sys.modules, "google.genai.types", fake_types)
     monkeypatch.setattr(vision, "_credentials", lambda: ("cred",))
-    monkeypatch.setattr("backend.key_rotator.call_gemini_model", lambda *a, **k: Response())
+    # call_gemini_model returns (result, model_that_answered).
+    monkeypatch.setattr("backend.key_rotator.call_gemini_model", lambda *a, **k: (Response(), "fake-model"))
     assert vision.ocr(b"image-bytes") == ""
+
+
+def test_vision_returns_transcript_from_model_chain(monkeypatch):
+    """A real transcript must survive the (result, model) unpacking of the chain."""
+    import sys
+    import types as _module_types
+
+    class Response:
+        text = "Invoice total: 1200"
+
+    class _Client:
+        def __init__(self, **_kwargs) -> None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+    class _Types:
+        @staticmethod
+        def Part(**kwargs):
+            return kwargs
+
+    fake_genai = _module_types.ModuleType("google.genai")
+    fake_genai.Client = _Client
+    fake_types = _module_types.ModuleType("google.genai.types")
+    fake_types.Part = _Types.Part
+    fake_genai.types = fake_types
+    fake_google = _module_types.ModuleType("google")
+    fake_google.genai = fake_genai
+    monkeypatch.setitem(sys.modules, "google", fake_google)
+    monkeypatch.setitem(sys.modules, "google.genai", fake_genai)
+    monkeypatch.setitem(sys.modules, "google.genai.types", fake_types)
+    monkeypatch.setattr(vision, "_credentials", lambda: ("cred",))
+    monkeypatch.setattr("backend.key_rotator.call_gemini_model", lambda *a, **k: (Response(), "fake-model"))
+    assert vision.ocr(b"image-bytes") == "Invoice total: 1200"

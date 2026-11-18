@@ -946,6 +946,7 @@ const ChatWorkspace: React.FC = () => {
               {models.length > 0 && (
                 <label className="cw-model-picker" title="Model chosen for the next message">
                   <select
+                    className="cw-model-picker"
                     value={selectedModel}
                     onChange={(event) => setSelectedModel(event.target.value)}
                     aria-label="AI model"

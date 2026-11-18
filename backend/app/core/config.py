@@ -209,7 +209,8 @@ def _load_settings() -> "Settings":
     JWT_SECRET has no safe default: a predictable signing key lets an attacker
     forge bearer tokens. A short value is just as bad. But refusing to boot means
     a hosted platform (Render, Fly, Railway) stays down until someone edits an
-    environment variable -- with no working deploy to debug on.
+    environment variable -- with no working deploy to debug on. Never feed a
+    short env JWT_SECRET back into Settings().
 
     So: a *missing* secret is generated and, on a dev machine, persisted to
     ``backend/.jwt_secret`` so a local restart does not sign everyone out. A *too

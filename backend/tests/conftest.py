@@ -213,23 +213,71 @@ def test_outbound_network_guard(request, monkeypatch):
     class _Blocked(RuntimeError):
         pass
 
-    def _blocked(*_args, **_kwargs):
+    from urllib.parse import urlsplit
+
+    def _is_loopback(value) -> bool:
+        """A local fake server (127.0.0.1) is not an external service.
+
+        ``test_provider_contract_mock`` starts a ThreadingHTTPServer on
+        ``127.0.0.1`` to test provider failures, so blocking loopback made those
+        tests fail with the guard's own exception instead of the injected
+        provider error.
+        """
+        if isinstance(value, requests.Request):
+            value = value.url
+        if isinstance(value, bytes):
+            value = value.decode("utf-8", "replace")
+        if not isinstance(value, str):
+            return False
+        host = ""
+        try:
+            parsed = urlsplit(value)
+        except Exception:  # noqa: BLE001 - not a URL: treat as external
+            return False
+        host = parsed.hostname or ""
+        if not host:
+            # requests.request(method, url) passes the URL positionally first.
+            return False
+        host = host.lower()
+        return host in {"127.0.0.1", "localhost", "::1", "[::1]"}
+
+    def _make_guard(method: str | None):
+        def _guarded(*args, **kwargs):
+            url = kwargs.get("url")
+            if url is None:
+                for candidate in args:
+                    if isinstance(candidate, (str, bytes, requests.Request)):
+                        url = candidate
+                        break
+            if url is not None and _is_loopback(url):
+                # requests.request(method, url) takes the verb positionally;
+                # requests.get/post(url) do not, hence the explicit method here.
+                return _real_request(method, *args, **kwargs)
+            raise _Blocked(
+                "Outbound network access during a unit test. Mock the client, or mark "
+                "the test with @pytest.mark.allow_network if it is a true integration test."
+            )
+        return _guarded
+
+    def _blocked_urlopen(url, *args, **kwargs):
+        target = url if isinstance(url, (str, bytes)) else getattr(url, "full_url", url)
+        if _is_loopback(target):
+            return _real_urlopen(url, *args, **kwargs)
         raise _Blocked(
             "Outbound network access during a unit test. Mock the client, or mark "
             "the test with @pytest.mark.allow_network if it is a true integration test."
         )
 
     import requests
+    import urllib.request as urlrequest
 
-    monkeypatch.setattr(requests, "request", _blocked)
-    monkeypatch.setattr(requests, "get", _blocked)
-    monkeypatch.setattr(requests, "post", _blocked)
-    try:
-        import urllib.request as urlrequest
+    _real_request = requests.request
+    _real_urlopen = urlrequest.urlopen
 
-        monkeypatch.setattr(urlrequest, "urlopen", _blocked)
-    except ImportError:  # pragma: no cover
-        pass
+    monkeypatch.setattr(requests, "request", _make_guard(None))
+    monkeypatch.setattr(requests, "get", _make_guard("GET"))
+    monkeypatch.setattr(requests, "post", _make_guard("POST"))
+    monkeypatch.setattr(urlrequest, "urlopen", _blocked_urlopen)
     yield
 
 

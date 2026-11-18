@@ -168,7 +168,18 @@ def http_client():
         ("audit.png", "image/png", lambda: _png_bytes()),
     ],
 )
-def test_upload_extract_and_download(http_client, filename, mime, builder):
+def test_upload_extract_and_download(http_client, filename, mime, builder, monkeypatch):
+    if mime.startswith("image/"):
+        # Never reach a live vision provider from a unit test: with a real Gemini key
+        # present this upload used to retry every OCR model against a quota-exhausted
+        # free tier and stalled the whole suite for minutes (only to discard the
+        # result). The OCR path itself is covered by test_ocr_safety.
+        from app.services import vision
+
+        def _no_vision(_data: bytes) -> str:
+            raise vision.OcrUnavailable("OCR disabled in tests")
+
+        monkeypatch.setattr(vision, "ocr", _no_vision)
     headers = _register(http_client, f"upload-{filename.replace('.', '-')}@example.com")
     data = builder()
     uploaded = http_client.post(
