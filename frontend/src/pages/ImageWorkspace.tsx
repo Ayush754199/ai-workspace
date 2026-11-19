@@ -1,7 +1,7 @@
 import React, { useRef, useState } from "react";
 import AppShell from "../components/AppShell";
 import { useAuth } from "../contexts/AuthContext";
-import { downloadBlob, imageApi } from "../api/workspaceApi";
+import { downloadBlob, imageApi, chatV2 } from "../api/workspaceApi";
 import FeatureGate from "../components/FeatureGate";
 
 /**
@@ -33,6 +33,16 @@ const ImageWorkspacePage: React.FC = () => {
   const [error, setError] = useState("");
   const [tolerance, setTolerance] = useState(28);
   const inputRef = useRef<HTMLInputElement>(null);
+  const conversationIdRef = useRef<number | null>(null);
+
+  const ensureConversation = async () => {
+    if (conversationIdRef.current != null) return conversationIdRef.current;
+    if (!token) throw new Error("Sign in to generate an image");
+    const conv = await chatV2.createConversation(token, "Image studio", "chat");
+    conversationIdRef.current = conv.id;
+    return conv.id;
+  };
+
 
   const run = async (label: string, task: () => Promise<void>) => {
     setBusy(label);
@@ -102,7 +112,8 @@ const ImageWorkspacePage: React.FC = () => {
                   onKeyDown={(e) => {
                     if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && prompt.trim()) void run("generate", async () => {
                       if (!token) return;
-                      showBlob(await imageApi.generate(token, prompt.trim(), source));
+                      const cid = await ensureConversation();
+                      showBlob(await imageApi.generate(token, prompt.trim(), source, cid));
                     });
                   }}
                 />
@@ -134,7 +145,8 @@ const ImageWorkspacePage: React.FC = () => {
                   disabled={!prompt.trim() || !token || busy === "generate"}
                   onClick={() => run("generate", async () => {
                     if (!token) return;
-                    showBlob(await imageApi.generate(token, prompt.trim(), source));
+                    const cid = await ensureConversation();
+                    showBlob(await imageApi.generate(token, prompt.trim(), source, cid));
                   })}
                 >
                   {busy === "generate" ? <span className="img-spinner" aria-hidden="true" /> : <span className="img-spark">✦</span>}
