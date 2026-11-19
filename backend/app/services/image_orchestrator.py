@@ -93,7 +93,7 @@ def _pollinations(prompt: str, image: bytes | None) -> tuple[bytes, str]:
     encoded = urllib.parse.quote(prompt, safe="")
     url = (
         f"https://image.pollinations.ai/prompt/{encoded}"
-        "?width=1024&height=1024&nologo=true&model=flux&enhance=true"
+        "?width=1024&height=768&nologo=true&model=flux"
     )
     try:
         response = requests.get(url, timeout=settings.AI_REQUEST_TIMEOUT_SECONDS)
