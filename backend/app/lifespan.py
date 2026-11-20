@@ -71,6 +71,63 @@ def recover_media_jobs() -> None:
         logger.exception("media job recovery failed")
 
 
+def seed_knowledge_base() -> None:
+    """Import the gzipped knowledge seed when the chunk table is empty.
+
+    The study PDFs are not committed (405 MB), so the extracted text travels as a
+    compressed JSONL seed under backend/app/data/. On a fresh deploy (Render,
+    new DB) this populates the knowledge base exactly once; afterwards the DB is
+    the source of truth and this is a no-op.
+    """
+    import gzip
+    import json
+    from pathlib import Path
+
+    from app.core.database import SessionLocal, engine, Base
+    from app.models.library import KnowledgeChunk
+    import app.models.library  # noqa: F401
+
+    Base.metadata.create_all(bind=engine)
+    session = SessionLocal()
+    try:
+        if session.query(KnowledgeChunk.id).first() is not None:
+            return  # already populated
+        seed = Path(__file__).resolve().parents[1] / "data" / "knowledge_seed.jsonl.gz"
+        if not seed.is_file():
+            logger.info("knowledge seed file not found; skipping import")
+            return
+        count = 0
+        with gzip.open(seed, "rt", encoding="utf-8") as stream:
+            for line in stream:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                session.add(
+                    KnowledgeChunk(
+                        document_title=str(row.get("title") or "Untitled")[:300],
+                        subject=row.get("subject"),
+                        source_file=row.get("source"),
+                        chunk_index=int(row.get("index") or 0),
+                        content=row.get("content") or "",
+                        char_count=len(row.get("content") or ""),
+                    )
+                )
+                count += 1
+                if count % 1000 == 0:
+                    session.commit()
+        session.commit()
+        logger.info("knowledge base seeded: %d chunks imported", count)
+    except Exception:  # noqa: BLE001 - optional knowledge data must not block startup
+        session.rollback()
+        logger.exception("knowledge base seed failed")
+    finally:
+        session.close()
+
+
 async def init_mongo() -> None:
     """Create Mongo indexes when a MongoDB URL is configured.
 
@@ -151,6 +208,7 @@ async def on_startup() -> None:
     init_database()
     provision_admin()
     recover_media_jobs()
+    seed_knowledge_base()
     await init_mongo()
     await reset_call_data_if_requested()
     await start_call_sweeper()
