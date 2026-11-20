@@ -38,6 +38,7 @@ from app.services.chat_service import (
 )
 from app.services.intelligent_orchestrator import assess_intent, preferred_providers
 from app.services.ai_gateway.quota import QuotaError, QuotaExhausted, QuotaService
+from app.services.knowledge_base import build_knowledge_context
 from app.core.database import SessionLocal
 
 logger = logging.getLogger(__name__)
@@ -334,6 +335,10 @@ async def send_message(
     # configured, otherwise the default persona. It is passed to the gateway below.
     system_prompt = conversation.system_prompt or DEFAULT_SYSTEM_PROMPT
     prompt = conversation_prompt(history, system_prompt=conversation.system_prompt, extra_context=attachment_context)
+    # Inject knowledge-base context from uploaded/ingested PDFs so answers are grounded in study material.
+    knowledge = build_knowledge_context(db, content)
+    knowledge_context = attachment_context + ("\n\n" + knowledge if knowledge else "")
+    prompt = conversation_prompt(history, system_prompt=conversation.system_prompt, extra_context=knowledge_context)
     citations: list[dict] = []
     if research_requested:
         try:
@@ -460,6 +465,9 @@ async def regenerate(
     except QuotaError as exc:
         raise HTTPException(status_code=429, detail=str(exc)) from exc
     prompt = conversation_prompt(history, system_prompt=conversation.system_prompt)
+    knowledge = build_knowledge_context(db, last_user_prompt)
+    if knowledge:
+        prompt = f"{knowledge}\n\n{prompt}"
     try:
         text, used_provider, used_model = await generate_reply(
             db,
@@ -617,6 +625,10 @@ def stream_message(
         .all()
     )
     prompt = conversation_prompt(history, system_prompt=conversation.system_prompt, extra_context=attachment_context)
+    # Stream path also grounds answers in the private knowledge base (PDF study material).
+    knowledge = build_knowledge_context(db, content)
+    knowledge_context = attachment_context + ("\n\n" + knowledge if knowledge else "")
+    prompt = conversation_prompt(history, system_prompt=conversation.system_prompt, extra_context=knowledge_context)
     if research_requested and stream_prompt:
         prompt = (
             f"{stream_prompt}\n\n{prompt}\n\n"
