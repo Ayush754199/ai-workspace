@@ -1060,7 +1060,11 @@ async def generate_document(
         raise HTTPException(status_code=422, detail=error_utils.public_message(exc, "The assistant did not return usable document content.")) from exc
 
     content_type, extension = GENERATED_FORMATS[payload.format]
-    safe = "".join(ch for ch in title if ch.isalnum() or ch in "-_ ").strip() or "document"
+    # The title often contains newlines, commas or table text copied from the prompt
+    # (e.g. "Name,Score\nAmit,90"). Collapse all whitespace/punctuation runs to a
+    # single space first, otherwise the file name silently loses separators.
+    base = " ".join(str(title or "").split())
+    safe = "".join(ch for ch in base if ch.isalnum() or ch in "-_ ").strip() or "document"
     filename = f"{safe[:100]}{extension}"
     record = AiAttachment(
         user_id=user.id,

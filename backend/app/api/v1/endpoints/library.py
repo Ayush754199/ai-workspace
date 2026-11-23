@@ -8,17 +8,20 @@ trusted ingestion job), plus surface a status summary. There is deliberately no
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, require_legacy_ai_enabled
+from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.models.user import User
 from app.models.library import KnowledgeChunk
 from app.services import knowledge_base
 from app.core import errors as error_utils
 
-router = APIRouter(prefix="/library", tags=["library"], dependencies=[Depends(require_legacy_ai_enabled)])
+# The knowledge base is core chat infrastructure, not a legacy AI route, so it is
+# gated on a normal authenticated user (plus admin for ingest) rather than the
+# ``require_legacy_ai_enabled`` flag that answers 410 on live deployments.
+router = APIRouter(prefix="/library", tags=["library"], dependencies=[Depends(get_current_user)])
 
 # Subject buckets inferred from the file name / title for nicer filtering.
 SUBJECT_HINTS = [
@@ -77,10 +80,17 @@ def library_status(db: Session = Depends(get_db), _: User = Depends(get_current_
 async def ingest_pdf(
     file: UploadFile = File(...),
     title: str = Form(default=""),
-    _: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Ingest one PDF: extract text, chunk it, store. Private — never user-downloadable."""
+    """Ingest one PDF: extract text, chunk it, store. Private — never user-downloadable.
+
+    Admin-only: the knowledge base is shared server-side state, so only an
+    administrator may add to it.
+    """
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="Only an administrator can add knowledge-base material")
+
     data = await file.read()
     if not data:
         raise error_utils.bad_request("The uploaded PDF is empty")
